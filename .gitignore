@@ -1,0 +1,24 @@
+# Binaries
+/bin/
+agent-board
+
+# Go
+*.test
+*.out
+coverage.*
+
+# Local runtime data
+*.db
+*.db-shm
+*.db-wal
+.agent-board/
+.agent-board.json
+
+# Editors / OS
+.DS_Store
+.idea/
+.vscode/
+
+# Temporary files
+tmp/
+*.tmp

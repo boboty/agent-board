@@ -1,0 +1,10 @@
+Agent Board
+Copyright 2026 Agent Board contributors
+
+This repository is a clean implementation of Agent Board.
+
+Some infrastructure code may later be selectively derived from third-party
+Apache-2.0 projects, including the earlier rhizome-based proof of concept.
+When such code is introduced, the relevant source attribution, copyright
+notices, and license requirements must be preserved with the derived files
+and/or this NOTICE as required.
