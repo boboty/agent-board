@@ -294,8 +294,9 @@ var templateFuncs = template.FuncMap{
 	"detailArgs": func(board boardView, detail *detailView) detailArgs {
 		return detailArgs{Board: board, Detail: detail}
 	},
-	"factArgs": func(t *UIStrings, fact domain.TaskFact) factArgs { return factArgs{T: t, Fact: fact} },
-	"isState":  func(state *domain.State, want domain.State) bool { return state != nil && *state == want },
+	"factArgs":    func(t *UIStrings, fact domain.TaskFact) factArgs { return factArgs{T: t, Fact: fact} },
+	"factSummary": factSummary,
+	"isState":     func(state *domain.State, want domain.State) bool { return state != nil && *state == want },
 	"kindLabel": func(kind domain.FactKind) string {
 		if label, ok := zhCN.FactKinds[kind]; ok {
 			return label

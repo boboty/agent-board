@@ -4,7 +4,10 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"slices"
+	"strings"
+	"unicode/utf8"
 
 	"github.com/boboty/agent-board/internal/board"
 	"github.com/boboty/agent-board/internal/domain"
@@ -176,6 +179,72 @@ func latestByKind(facts []domain.TaskFact) []domain.TaskFact {
 		}
 	}
 	return latest
+}
+
+// factSummary gives the detail header a compact, presentation-only view of a
+// fact. It prefers a few known identity fields and falls back to the opening
+// paragraph of the body; the full fact remains available in the history below.
+func factSummary(fact domain.TaskFact) string {
+	keys := map[domain.FactKind][]string{
+		domain.FactExecution:    {"role", "model", "harness"},
+		domain.FactDelivery:     {"accepted_commit", "commit", "files", "file_count"},
+		domain.FactVerification: {"verdict", "round"},
+		domain.FactHandoff:      {"worktree", "branch"},
+	}
+	var parts []string
+	var data map[string]json.RawMessage
+	if len(fact.Data) > 0 && json.Unmarshal(fact.Data, &data) == nil {
+		for _, key := range keys[fact.Kind] {
+			if value, ok := summaryDataValue(data[key]); ok {
+				parts = append(parts, key+" "+value)
+			}
+		}
+	}
+	body := summaryBody(fact.Body)
+	if body != "" {
+		parts = append(parts, body)
+	}
+	return strings.Join(parts, " · ")
+}
+
+func summaryDataValue(raw json.RawMessage) (string, bool) {
+	if len(raw) == 0 {
+		return "", false
+	}
+	var value any
+	if err := json.Unmarshal(raw, &value); err != nil {
+		return "", false
+	}
+	switch value := value.(type) {
+	case string:
+		value = strings.Join(strings.Fields(value), " ")
+		return truncateSummary(value, 64), value != ""
+	case float64, bool:
+		return fmt.Sprint(value), true
+	default:
+		return "", false
+	}
+}
+
+func summaryBody(body string) string {
+	body = strings.TrimSpace(body)
+	if body == "" {
+		return ""
+	}
+	// A blank line ends the opening paragraph. Collapse remaining whitespace
+	// so the summary stays compact even when the fact is formatted as prose.
+	if end := strings.Index(body, "\n\n"); end >= 0 {
+		body = body[:end]
+	}
+	return truncateSummary(strings.Join(strings.Fields(body), " "), 180)
+}
+
+func truncateSummary(value string, maxRunes int) string {
+	if utf8.RuneCountInString(value) <= maxRunes {
+		return value
+	}
+	runes := []rune(value)
+	return strings.TrimSpace(string(runes[:maxRunes-1])) + "…"
 }
 
 // prettyJSON indents a stored JSON object for display; invalid input is

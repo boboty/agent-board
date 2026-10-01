@@ -442,8 +442,9 @@ func TestFactsNeverChangeTaskState(t *testing.T) {
 		t.Fatalf("facts moved the card: %v", layout)
 	}
 	drawer := f.get("/?task=1").body
-	if strings.Count(drawer, `class="fact" data-fact-kind=`) != len(domain.FactKinds)+4 {
-		t.Fatalf("drawer should list 5 facts plus the latest execution/delivery/verification/handoff summary")
+	if strings.Count(drawer, `class="fact" data-fact-kind=`) != len(domain.FactKinds) ||
+		strings.Count(drawer, `class="key-fact" data-key-fact-kind=`) != 4 {
+		t.Fatalf("drawer should keep all fact records and show four compact latest summaries")
 	}
 	// Invalid data is the Board's INVALID_ARGUMENT, reported with its field.
 	form := findForm(t, drawer, "/tasks/1/facts", "record-fact")
@@ -476,6 +477,47 @@ func TestDrawerShowsFactsAndHistory(t *testing.T) {
 	missing := f.get("/?task=99")
 	if missing.status != http.StatusNotFound || !strings.Contains(missing.body, zhCN.Errors[domain.CodeTaskNotFound]) || strings.Contains(missing.body, "data-detail=") {
 		t.Fatalf("missing task: status %d", missing.status)
+	}
+}
+
+func TestLatestFactsUseCompactSummariesAndKeepFullFacts(t *testing.T) {
+	f := newFixture(t)
+	f.queue(f.create("summaries"))
+	ctx := context.Background()
+	longBody := strings.Repeat("Delivery detail remains in the fact history. ", 8) + "full-body-tail-marker"
+	for _, fact := range []domain.TaskFact{
+		{Kind: domain.FactDelivery, Actor: "developer", Body: longBody, Data: []byte(`{"commit":"bacd250","files":10}`)},
+		{Kind: domain.FactVerification, Actor: "verifier", Body: "PASS · fingerprint unchanged", Data: []byte(`{"verdict":"PASS","round":"r2"}`)},
+	} {
+		if _, err := f.ops.RecordFact(ctx, ops.RecordFactArgs{Write: ops.Write{Actor: fact.Actor}, Task: "1", Kind: fact.Kind,
+			Body: fact.Body, Data: fact.Data}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	page := f.get("/?task=1")
+	if page.status != http.StatusOK {
+		t.Fatalf("status %d", page.status)
+	}
+	keyStart := strings.Index(page.body, `data-key-facts`)
+	factsStart := strings.Index(page.body, `data-facts`)
+	if keyStart < 0 || factsStart < 0 || keyStart >= factsStart {
+		t.Fatal("missing or misordered key facts and fact history")
+	}
+	keyFacts := page.body[keyStart:factsStart]
+	factHistory := page.body[factsStart:]
+	for _, want := range []string{`data-key-fact-kind="delivery"`, "developer", "bacd250", "files 10", `data-key-fact-kind="verification"`, "verifier", "PASS", "fingerprint unchanged"} {
+		if !strings.Contains(keyFacts, want) {
+			t.Errorf("key facts missing %q", want)
+		}
+	}
+	if strings.Contains(keyFacts, "full-body-tail-marker") {
+		t.Fatal("key fact summary contains the full long body")
+	}
+	if !strings.Contains(factHistory, longBody) || !strings.Contains(factHistory, "PASS · fingerprint unchanged") {
+		t.Fatal("full fact history did not retain the complete bodies")
+	}
+	if !strings.Contains(page.body, `data-event="fact_recorded"`) {
+		t.Fatal("fact audit history is missing")
 	}
 }
 

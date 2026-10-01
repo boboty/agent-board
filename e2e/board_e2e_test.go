@@ -282,6 +282,19 @@ func TestWebBoardInRealBrowser(t *testing.T) {
 		t.Fatalf("fact changed the task: %+v", after)
 	}
 	waitFor(t, ctx, "still blocked", columnHas("BLOCKED", 5)+` && !`+columnHas("DONE", 5))
+	longBody := strings.Repeat("Long delivery evidence stays in the history. ", 8) + "e2e-full-body-tail"
+	b.cli("fact", "record", "5", "--kind", "delivery", "--body", longBody, "--data", `{"commit":"e2e123"}`)
+	run(t, ctx, "open detail summaries", chromedp.Navigate(b.url+"/?task=5"), chromedp.WaitVisible(`#drawer [data-key-facts]`))
+	summaries := evalJSON[[]string](t, ctx, `[
+  document.querySelector('[data-key-fact-kind="delivery"]')?.textContent || '',
+  document.querySelector('[data-facts]')?.textContent || ''
+]`)
+	if !strings.Contains(summaries[0], "e2e123") || strings.Contains(summaries[0], "e2e-full-body-tail") {
+		t.Fatalf("detail delivery summary was not compact: %q", summaries[0])
+	}
+	if !strings.Contains(summaries[1], "e2e-full-body-tail") {
+		t.Fatalf("full delivery body missing from fact history: %q", summaries[1])
+	}
 
 	// Live refresh: an agent changes state through the CLI; the open page
 	// follows without a reload.

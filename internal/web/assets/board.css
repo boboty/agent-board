@@ -342,11 +342,13 @@ a { color: var(--ink); }
 
 /* Facts and events */
 .fact { border-left: 2px solid var(--border); padding: 2px 0 6px 10px; margin-bottom: 6px; }
+.key-fact { border-left: 2px solid var(--border); padding: 2px 0 6px 10px; margin-bottom: 6px; }
 .fact-head { display: flex; gap: 8px; align-items: baseline; }
 .fact-kind { font-size: 0.7rem; font-weight: 700; color: var(--ink); }
 .fact-kind-verification { color: #14532d; }
 .fact-kind-handoff { color: var(--warn); }
 .fact-meta { font-size: 0.7rem; color: var(--text-muted); }
+.fact-summary { margin: 2px 0 0; font-size: 0.78rem; color: var(--text-secondary); overflow-wrap: anywhere; }
 .fact-data summary { cursor: pointer; font-size: 0.72rem; color: var(--text-secondary); }
 .fact-data pre { background: var(--bg); padding: 6px 8px; border-radius: var(--radius-sm); overflow-x: auto; margin: 4px 0 0; }
 .table-scroll { overflow-x: auto; }

@@ -138,7 +138,7 @@
     {{with .Detail.Latest}}
     <section class="drawer-section" data-key-facts>
       <h3>{{$T.KeyFacts}}</h3>
-      {{range .}}{{template "fact" (factArgs $T .)}}{{end}}
+      {{range .}}{{template "keyFact" (factArgs $T .)}}{{end}}
     </section>
     {{end}}
 
@@ -230,5 +230,12 @@
   <div class="fact-head"><span class="fact-kind fact-kind-{{.Fact.Kind}}">{{kindLabel .Fact.Kind}}</span><span class="fact-meta">{{.Fact.Actor}} · {{time .Fact.CreatedAt}}</span></div>
   <div class="prose">{{.Fact.Body}}</div>
   {{if .Fact.Data}}<details class="fact-data"><summary>{{.T.FactData}}</summary><pre>{{pretty .Fact.Data}}</pre></details>{{end}}
+</div>
+{{end}}
+
+{{define "keyFact"}}
+<div class="key-fact" data-key-fact-kind="{{.Fact.Kind}}">
+  <div class="fact-head"><span class="fact-kind fact-kind-{{.Fact.Kind}}">{{kindLabel .Fact.Kind}}</span><span class="fact-meta">{{.Fact.Actor}} · {{time .Fact.CreatedAt}}</span></div>
+  {{with factSummary .Fact}}<p class="fact-summary">{{.}}</p>{{end}}
 </div>
 {{end}}
