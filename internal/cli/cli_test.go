@@ -7,6 +7,7 @@ import (
 	"go/parser"
 	"go/token"
 	"io"
+	"net/http"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -259,6 +260,44 @@ func TestMCPCommand(t *testing.T) {
 	}
 }
 
+func TestWebCommand(t *testing.T) {
+	h := newHarness(t)
+	h.fails(ExitUsage, CodeUsage, "web", "--addr", "0.0.0.0:7420")
+	h.fails(ExitUsage, CodeUsage, "web", "--addr", "localhost:7420")
+
+	h.env.Actor = ""
+	ctx, cancel := context.WithCancel(context.Background())
+	reader, writer := io.Pipe()
+	env := h.env
+	env.Stdin, env.Stdout, env.Stderr = strings.NewReader(""), writer, io.Discard
+	done := make(chan int, 1)
+	go func() { done <- Run(ctx, []string{"web", "--addr", "127.0.0.1:0"}, env) }()
+	var started struct {
+		URL       string `json:"url"`
+		ProjectID string `json:"project_id"`
+		Actor     string `json:"actor"`
+	}
+	if err := json.NewDecoder(reader).Decode(&started); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(started.URL, "http://127.0.0.1:") || started.Actor != DefaultWebActor || started.ProjectID == "" {
+		t.Fatalf("started %+v", started)
+	}
+	response, err := http.Get(started.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, _ := io.ReadAll(response.Body)
+	response.Body.Close()
+	if response.StatusCode != http.StatusOK || !strings.Contains(string(body), started.ProjectID) {
+		t.Fatalf("status %d", response.StatusCode)
+	}
+	cancel()
+	if code := <-done; code != ExitOK {
+		t.Fatalf("web exited %d", code)
+	}
+}
+
 // Adapters reach storage only through the Board service: they never import
 // the SQLite layer, migrations, or database/sql.
 func TestAdaptersDoNotTouchStorage(t *testing.T) {
@@ -268,7 +307,7 @@ func TestAdaptersDoNotTouchStorage(t *testing.T) {
 		"github.com/boboty/agent-board/internal/sqlite",
 		"github.com/boboty/agent-board/migrations",
 	}
-	for _, dir := range []string{".", "../mcpserver", "../ops", "../../cmd/agent-board"} {
+	for _, dir := range []string{".", "../mcpserver", "../ops", "../web", "../../cmd/agent-board"} {
 		files, err := filepath.Glob(filepath.Join(dir, "*.go"))
 		if err != nil {
 			t.Fatal(err)

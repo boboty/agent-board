@@ -22,6 +22,16 @@ header naming their origin and have been modified:
   migrations/migrations.go         checksummed migration runner
   internal/projectconfig/projectconfig.go
                                    project identity file and external data path
+  internal/web/server.go           loopback HTTP lifecycle, Host/Origin checks,
+                                   body limit, panic recovery
 
-Only infrastructure was derived. No workflow, issue state machine, attempt,
-lease, review, or gate semantics were taken from rhizome-mcp.
+The Web Board also ports presentation and HTTP write infrastructure from the
+proof of concept's own served board (boboty/agent-board-rhizome-poc, branch
+agent-board-v0.1, commit c3867a3): the CSRF write gate in
+internal/web/write.go, the BenYan style tokens and components in
+internal/web/assets/board.css, and the UI string structure in
+internal/web/strings.go.
+
+Only infrastructure and presentation were derived. No workflow, issue state
+machine, board projection, attempt, lease, review, or gate semantics were
+taken from rhizome-mcp or the proof of concept.

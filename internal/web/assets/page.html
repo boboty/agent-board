@@ -1,0 +1,234 @@
+{{define "page"}}<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{.T.ProductName}} · {{.T.BoardSubtitle}}</title>
+<link rel="stylesheet" href="/assets/board.css">
+<script src="/assets/board.js" defer></script>
+</head>
+<body data-live-updated="{{.T.LiveUpdated}}" data-live-stale="{{.T.LiveStale}}">
+<header class="board-header">
+  <div class="board-header-left">
+    <h1>{{.T.ProductName}}</h1>
+    <p class="board-subtitle">{{.T.BoardSubtitle}}</p>
+  </div>
+  <div class="board-header-right">
+    <a class="btn btn-accent" id="new-task-btn" href="/?new=1">{{.T.NewTask}}</a>
+  </div>
+</header>
+<div class="board-notices">
+{{with .Banner}}<div class="board-banner{{if .Error}} board-banner-error{{end}}" role="status" id="board-banner">{{.Text}}</div>{{end}}
+<div class="board-live-status" id="live-status" role="status" aria-live="polite" hidden></div>
+</div>
+<main class="board-main" id="board-live" data-etag="{{.ETag}}" data-live-query="{{.LiveQuery}}">{{.Live}}</main>
+<div class="modal-overlay" id="new-task-modal"{{if not .NewOpen}} hidden{{end}}>
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="new-task-heading">
+    <a class="modal-close" href="/" data-close-modal aria-label="{{.T.Close}}">&times;</a>
+    <h2 id="new-task-heading">{{.T.NewTaskHeading}}</h2>
+    <form class="board-form" method="post" action="/tasks" data-write-form>
+      {{template "writeFields" .CSRF}}
+      <input type="hidden" name="return_new" value="1">
+      <label>{{.T.FieldTitle}}<input type="text" name="title" maxlength="300" required autocomplete="off"></label>
+      <label>{{.T.Description}}<textarea name="description" rows="4"></textarea></label>
+      <label>{{.T.AcceptanceCriteria}}<textarea name="acceptance_criteria" rows="4"></textarea></label>
+      <div class="board-form-actions">
+        <a class="btn" href="/" data-close-modal>{{.T.Cancel}}</a>
+        <button class="btn btn-primary" type="submit">{{.T.CreateTask}}</button>
+      </div>
+    </form>
+  </div>
+</div>
+<footer class="board-footer">{{.T.ProductName}} · {{.T.ProjectLabel}} <code>{{.Info.ProjectID}}</code> · {{.T.ActorLabel}} <code>{{.Info.Actor}}</code></footer>
+</body>
+</html>
+{{end}}
+
+{{define "writeFields"}}<input type="hidden" name="csrf_token" value="{{.}}"><input type="hidden" name="idempotency_key" value="">{{end}}
+
+{{define "live"}}
+<section class="board-columns">
+{{range $col := .Columns}}
+  <section class="board-col board-col-{{colClass $col.State}}" data-column="{{$col.State}}">
+    <h2 class="board-col-heading"><span>{{stateLabel $col.State}} <span class="board-col-code">{{stateCode $col.State}}</span></span><span class="board-col-count">{{len $col.Cards}}</span></h2>
+    <div class="board-col-cards">
+    {{range $i, $card := $col.Cards}}
+      <article class="board-card" data-task="{{$card.Number}}">
+        <div class="board-card-head">
+          <a class="board-card-id" href="/?task={{$card.Number}}">#{{$card.Number}}</a>
+          {{if eq $col.State "READY"}}<span class="board-card-rank">{{add $i 1}}</span>{{end}}
+        </div>
+        <a class="board-card-title" href="/?task={{$card.Number}}">{{$card.Title}}</a>
+        {{with $card.StateReason}}<div class="board-card-reason">{{.}}</div>{{end}}
+        {{if eq $col.State "READY"}}
+        <div class="board-card-actions">
+          {{template "move" (moveArgs $ $card.Up $.T.MoveUp "up")}}
+          {{template "move" (moveArgs $ $card.Down $.T.MoveDown "down")}}
+        </div>
+        {{end}}
+      </article>
+    {{else}}
+      <p class="board-empty">{{$.T.NoCards}}</p>
+    {{end}}
+    </div>
+  </section>
+{{end}}
+</section>
+
+<section class="board-unqueued" data-unqueued>
+  <h2 class="board-section-heading">{{.T.Unqueued}} <span class="board-col-count">{{len .Unqueued}}</span></h2>
+  <p class="board-hint">{{.T.UnqueuedHint}}</p>
+  {{range .Unqueued}}
+  <div class="board-row" data-task="{{.Number}}">
+    <a class="board-card-id" href="/?task={{.Number}}">#{{.Number}}</a>
+    <a class="board-row-title" href="/?task={{.Number}}">{{.Title}}</a>
+    <form method="post" action="/tasks/{{.Number}}/queue" class="inline-form" data-write-form>
+      {{template "writeFields" $.CSRF}}
+      <input type="hidden" name="expected_version" value="{{.Version}}">
+      <button class="btn btn-sm" type="submit" data-action="queue">{{$.T.Queue}}</button>
+    </form>
+  </div>
+  {{else}}
+  <p class="board-empty">{{.T.NoUnqueued}}</p>
+  {{end}}
+</section>
+
+{{with .Detail}}{{template "detail" (detailArgs $ .)}}{{end}}
+{{end}}
+
+{{define "move"}}
+<form method="post" action="/ready/order" class="inline-form" data-write-form>
+  {{template "writeFields" .Board.CSRF}}
+  <input type="hidden" name="expected_version" value="{{.Board.ReadyVersion}}">
+  {{range .Order}}<input type="hidden" name="tasks" value="{{.}}">{{end}}
+  <button class="btn btn-sm" type="submit" data-action="move-{{.Direction}}"{{if not .Order}} disabled{{end}}>{{.Label}}</button>
+</form>
+{{end}}
+
+{{define "detail"}}{{$T := .Board.T}}{{$csrf := .Board.CSRF}}{{$task := .Detail.Task}}
+<div class="drawer-overlay">
+  <a class="drawer-backdrop" href="/" tabindex="-1" aria-hidden="true"></a>
+  <aside class="drawer" id="drawer" role="dialog" aria-modal="true" aria-labelledby="drawer-title" data-detail="{{$task.Number}}">
+    <header class="drawer-head">
+      <div>
+        <span class="board-card-id">#{{$task.Number}}</span>
+        <span class="state-badge state-{{stateClass $task.State}}" data-detail-state>{{stateText $task.State}}</span>
+      </div>
+      <a class="modal-close" id="drawer-close" href="/" aria-label="{{$T.Close}}">&times;</a>
+    </header>
+    <h2 class="drawer-title" id="drawer-title">{{$task.Title}}</h2>
+    {{with $task.StateReason}}<p class="drawer-reason"><span class="board-field-label">{{$T.StateReason}}</span> {{.}}</p>{{end}}
+    <dl class="drawer-meta">
+      <div><dt>{{$T.Version}}</dt><dd>{{$task.Version}}</dd></div>
+      <div><dt>{{$T.QueuedAt}}</dt><dd>{{timePtr $task.QueuedAt}}</dd></div>
+      <div><dt>{{$T.ReadyRank}}</dt><dd>{{int64Ptr $task.ReadyRank}}</dd></div>
+      <div><dt>{{$T.CreatedAt}}</dt><dd>{{time $task.CreatedAt}}</dd></div>
+      <div><dt>{{$T.UpdatedAt}}</dt><dd>{{time $task.UpdatedAt}}</dd></div>
+    </dl>
+
+    <section class="drawer-section">
+      <h3>{{$T.Description}}</h3>
+      {{if $task.Description}}<div class="prose">{{$task.Description}}</div>{{else}}<p class="board-empty-inline">{{$T.NoDescription}}</p>{{end}}
+    </section>
+    <section class="drawer-section">
+      <h3>{{$T.AcceptanceCriteria}}</h3>
+      {{if $task.AcceptanceCriteria}}<div class="prose">{{$task.AcceptanceCriteria}}</div>{{else}}<p class="board-empty-inline">{{$T.NoAcceptance}}</p>{{end}}
+    </section>
+
+    {{with .Detail.Latest}}
+    <section class="drawer-section" data-key-facts>
+      <h3>{{$T.KeyFacts}}</h3>
+      {{range .}}{{template "fact" (factArgs $T .)}}{{end}}
+    </section>
+    {{end}}
+
+    <section class="drawer-section drawer-actions">
+      {{if not $task.State}}
+      <form method="post" action="/tasks/{{$task.Number}}/queue" class="inline-form" data-write-form>
+        {{template "writeFields" $csrf}}
+        <input type="hidden" name="return_task" value="{{$task.Number}}">
+        <input type="hidden" name="expected_version" value="{{$task.Version}}">
+        <button class="btn btn-accent" type="submit" data-action="queue">{{$T.Queue}}</button>
+        <span class="board-hint">{{$T.UnqueuedHint}}</span>
+      </form>
+      {{else}}
+      <details class="drawer-action" id="action-state">
+        <summary>{{$T.SetState}}</summary>
+        <form class="board-form" method="post" action="/tasks/{{$task.Number}}/state" data-write-form>
+          {{template "writeFields" $csrf}}
+          <input type="hidden" name="return_task" value="{{$task.Number}}">
+          <input type="hidden" name="expected_version" value="{{$task.Version}}">
+          <label>{{$T.TargetState}}
+            <select name="state">
+              {{range .Board.States}}<option value="{{.}}"{{if isState $task.State .}} selected{{end}}>{{stateLabel .}} {{stateCode .}}</option>{{end}}
+            </select>
+          </label>
+          <label>{{$T.Reason}}<textarea name="reason" rows="2">{{with $task.StateReason}}{{.}}{{end}}</textarea></label>
+          <p class="board-hint">{{$T.StateHint}}</p>
+          <div class="board-form-actions"><button class="btn btn-primary" type="submit" data-action="set-state">{{$T.RecordState}}</button></div>
+        </form>
+      </details>
+      {{end}}
+
+      <details class="drawer-action" id="action-edit">
+        <summary>{{$T.EditTask}}</summary>
+        <form class="board-form" method="post" action="/tasks/{{$task.Number}}" data-write-form>
+          {{template "writeFields" $csrf}}
+          <input type="hidden" name="return_task" value="{{$task.Number}}">
+          <input type="hidden" name="expected_version" value="{{$task.Version}}">
+          <label>{{$T.FieldTitle}}<input type="text" name="title" maxlength="300" required value="{{$task.Title}}"></label>
+          <label>{{$T.Description}}<textarea name="description" rows="4">{{$task.Description}}</textarea></label>
+          <label>{{$T.AcceptanceCriteria}}<textarea name="acceptance_criteria" rows="4">{{$task.AcceptanceCriteria}}</textarea></label>
+          <div class="board-form-actions"><button class="btn btn-primary" type="submit" data-action="save">{{$T.SaveChanges}}</button></div>
+        </form>
+      </details>
+
+      <details class="drawer-action" id="action-fact">
+        <summary>{{$T.RecordFact}}</summary>
+        <form class="board-form" method="post" action="/tasks/{{$task.Number}}/facts" data-write-form>
+          {{template "writeFields" $csrf}}
+          <input type="hidden" name="return_task" value="{{$task.Number}}">
+          <label>{{$T.FactKind}}
+            <select name="kind">
+              {{range .Board.FactKinds}}<option value="{{.}}"{{if eq (print .) "note"}} selected{{end}}>{{kindLabel .}} {{.}}</option>{{end}}
+            </select>
+          </label>
+          <label>{{$T.FactBody}}<textarea name="body" rows="3" required></textarea></label>
+          <label>{{$T.FactDataField}}<textarea name="data" rows="2" class="mono" placeholder="{&quot;commit&quot;: &quot;abc123&quot;}"></textarea></label>
+          <p class="board-hint">{{$T.FactsHint}}</p>
+          <div class="board-form-actions"><button class="btn btn-primary" type="submit" data-action="record-fact">{{$T.SubmitFact}}</button></div>
+        </form>
+      </details>
+    </section>
+
+    <section class="drawer-section" data-facts>
+      <h3>{{$T.Facts}} <span class="board-col-count">{{len .Detail.Facts}}</span></h3>
+      <p class="board-hint">{{$T.FactsHint}}</p>
+      {{range newestFirst .Detail.Facts}}{{template "fact" (factArgs $T .)}}{{else}}<p class="board-empty-inline">{{$T.NoFacts}}</p>{{end}}
+    </section>
+
+    <section class="drawer-section" data-events>
+      <h3>{{$T.Events}} <span class="board-col-count">{{len .Detail.Events}}</span></h3>
+      {{if .Detail.Events}}
+      <div class="table-scroll"><table class="events">
+        <thead><tr><th>{{$T.EventTime}}</th><th>{{$T.EventType}}</th><th>{{$T.EventActor}}</th><th>{{$T.EventVer}}</th><th>{{$T.EventDetail}}</th></tr></thead>
+        <tbody>
+        {{range .Detail.Events}}
+          <tr data-event="{{.Type}}"><td class="nowrap">{{time .CreatedAt}}</td><td class="nowrap">{{eventLabel .Type}}</td><td>{{.Actor}}</td><td>{{int64Ptr .TaskVersion}}</td><td><code class="payload">{{compact .Payload}}</code></td></tr>
+        {{end}}
+        </tbody>
+      </table></div>
+      {{if .Detail.EventsTruncated}}<p class="board-hint">{{$T.EventsLimit}}</p>{{end}}
+      {{else}}<p class="board-empty-inline">{{$T.NoEvents}}</p>{{end}}
+    </section>
+  </aside>
+</div>
+{{end}}
+
+{{define "fact"}}
+<div class="fact" data-fact-kind="{{.Fact.Kind}}">
+  <div class="fact-head"><span class="fact-kind fact-kind-{{.Fact.Kind}}">{{kindLabel .Fact.Kind}}</span><span class="fact-meta">{{.Fact.Actor}} · {{time .Fact.CreatedAt}}</span></div>
+  <div class="prose">{{.Fact.Body}}</div>
+  {{if .Fact.Data}}<details class="fact-data"><summary>{{.T.FactData}}</summary><pre>{{pretty .Fact.Data}}</pre></details>{{end}}
+</div>
+{{end}}

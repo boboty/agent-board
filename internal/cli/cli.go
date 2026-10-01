@@ -11,6 +11,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"net"
 	"os"
 	"strings"
 	"sync/atomic"
@@ -22,6 +23,7 @@ import (
 	"github.com/boboty/agent-board/internal/mcpserver"
 	"github.com/boboty/agent-board/internal/ops"
 	"github.com/boboty/agent-board/internal/projectconfig"
+	"github.com/boboty/agent-board/internal/web"
 	"github.com/boboty/agent-board/internal/workspace"
 )
 
@@ -56,6 +58,7 @@ Project:
   check                        show project discovery and database location
   board                        show the READY queue and every task
   mcp                          serve the Board as MCP tools over stdio
+  web [--addr 127.0.0.1:7420]  serve the Web Board on a loopback address
 
 Tasks:
   task create --title T [--description D] [--acceptance A]
@@ -147,6 +150,8 @@ func run(ctx context.Context, args []string, env Env) error {
 		return runBoard(ctx, rest, env)
 	case "mcp":
 		return runMCP(ctx, rest, env)
+	case "web":
+		return runWeb(ctx, rest, env)
 	case "events":
 		return runEvents(ctx, rest, env)
 	case "history":
@@ -374,6 +379,45 @@ func runMCP(ctx context.Context, args []string, env Env) error {
 		return nil
 	}
 	return err
+}
+
+// DefaultWebActor is recorded for Web Board mutations when neither --actor
+// nor $AGENT_BOARD_ACTOR names one.
+const DefaultWebActor = "web"
+
+func runWeb(ctx context.Context, args []string, env Env) error {
+	c := newCommand("web", env)
+	addr := c.flags.String("addr", "127.0.0.1:7420", "loopback address to listen on (port 0 picks a free port)")
+	if _, err := c.parse(args, 0, 0); err != nil {
+		return err
+	}
+	if _, err := web.ValidateLoopbackAddress(*addr); err != nil {
+		return usagef("web: %v", err)
+	}
+	if strings.TrimSpace(c.actor) == "" {
+		c.actor = DefaultWebActor
+	}
+	service, project, closeBoard, err := c.open(ctx)
+	if err != nil {
+		return err
+	}
+	defer closeBoard()
+	handler, err := web.NewHandler(service, web.Info{ProjectID: project.Identity.ProjectID, Actor: c.actor})
+	if err != nil {
+		return err
+	}
+	return web.Serve(ctx, web.ServerOptions{
+		Address: *addr,
+		Handler: handler,
+		OnListen: func(listener net.Listener) {
+			_ = writeJSON(env.Stdout, map[string]string{
+				"url":           "http://" + listener.Addr().String() + "/",
+				"project_id":    project.Identity.ProjectID,
+				"database_path": project.DatabasePath,
+				"actor":         c.actor,
+			})
+		},
+	})
 }
 
 type nopWriteCloser struct{ io.Writer }
