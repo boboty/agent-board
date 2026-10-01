@@ -38,9 +38,11 @@ type Env struct {
 	// Actor is the default actor label (AGENT_BOARD_ACTOR).
 	Actor   string
 	Version string
-	Stdin   io.Reader
-	Stdout  io.Writer
-	Stderr  io.Writer
+	// ExecutablePath resolves the currently running executable. Tests may inject it.
+	ExecutablePath func() (string, error)
+	Stdin          io.Reader
+	Stdout         io.Writer
+	Stderr         io.Writer
 }
 
 // Exit statuses.
@@ -60,6 +62,7 @@ Project:
   check                        show project discovery and database location
   board                        show the READY queue and every task
   mcp                          serve the Board as MCP tools over stdio
+  mcp config [HARNESS]         print stdio MCP configuration (generic, claude-code, codex, opencode)
   web [--addr 127.0.0.1:7420]  serve the Web Board on a loopback address
 
 Workflow Skill:
@@ -156,6 +159,9 @@ func run(ctx context.Context, args []string, env Env) error {
 	case "board":
 		return runBoard(ctx, rest, env)
 	case "mcp":
+		if len(rest) > 0 && rest[0] == "config" {
+			return runMCPConfig(rest[1:], env)
+		}
 		return runMCP(ctx, rest, env)
 	case "web":
 		return runWeb(ctx, rest, env)

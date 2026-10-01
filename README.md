@@ -48,11 +48,24 @@ identity file; `agent-board check` shows what a directory resolves to.
 ### MCP
 
 `agent-board mcp` discovers the project from its working directory and serves
-the Board over stdio. Example harness entry:
+the Board over stdio. `agent-board mcp config` prints a generic stdio launch
+configuration; pass `claude-code`, `codex`, or `opencode` to print a
+Harness-specific snippet. For example:
 
 ```json
-{"command": "agent-board", "args": ["mcp", "--actor", "claude-code"]}
+{
+  "command": "/absolute/path/to/agent-board",
+  "args": ["mcp"]
+}
 ```
+
+Harness snippets identify their target command or config file. Claude Code
+prints a `claude mcp add` command, Codex prints a TOML section for
+`~/.codex/config.toml`, and OpenCode prints a JSON fragment for
+`~/.config/opencode/opencode.json`. Merge file fragments into existing
+configuration as needed; `mcp config` only prints text and never edits Harness
+files. It resolves the running executable path so the generated command works
+even when the binary is not on the Harness's `PATH`.
 
 Tools: `create_task`, `get_task`, `list_tasks`, `update_task`, `queue_task`,
 `set_task_state`, `list_ready`, `reorder_ready`, `record_fact`, `list_facts`,
@@ -61,11 +74,11 @@ Tools: `create_task`, `get_task`, `list_tasks`, `update_task`, `queue_task`,
 
 ### CLI
 
-Run `agent-board help` for the command list. Output is JSON on stdout; errors
-are `{"error": {...}}` on stderr with exit status 1 (Board or storage error)
-or 2 (usage error). `agent-board call <operation> '<json>'` invokes any
-operation through the same dispatch as MCP `tools/call`. The default actor is
-`$AGENT_BOARD_ACTOR`, overridden by `--actor`.
+Run `agent-board help` for the command list. CLI operation results are JSON on
+stdout; errors are `{"error": {...}}` on stderr with exit status 1 (Board or
+storage error) or 2 (usage error). `agent-board call <operation> '<json>'`
+invokes any operation through the same dispatch as MCP `tools/call`. The
+default actor is `$AGENT_BOARD_ACTOR`, overridden by `--actor`.
 
 ### Workflow Skill
 

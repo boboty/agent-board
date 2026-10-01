@@ -162,6 +162,36 @@ func TestSkillCommands(t *testing.T) {
 	h.fails(ExitUsage, CodeUsage, "skill", "show", "extra")
 }
 
+func TestMCPConfigCommands(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "agent board binary")
+	h := &harness{t: t, env: Env{
+		ExecutablePath: func() (string, error) { return path, nil },
+	}}
+	checks := []struct {
+		harness  string
+		contains string
+	}{
+		{"generic", `"args": [`},
+		{"claude-code", `claude mcp add --transport stdio --scope user agent-board -- '`},
+		{"codex", `[mcp_servers.agent-board]`},
+		{"opencode", `"type": "local"`},
+	}
+	for _, check := range checks {
+		got := h.ok("mcp", "config", check.harness)
+		if !strings.Contains(got, check.contains) || !strings.Contains(got, path) {
+			t.Errorf("%s config = %q; want marker %q and executable %q", check.harness, got, check.contains, path)
+		}
+	}
+	generic := h.ok("mcp", "config")
+	if !strings.Contains(generic, `"command": "`+path+`"`) {
+		t.Fatalf("default generic config lacks injected executable: %q", generic)
+	}
+	h.fails(ExitUsage, CodeUsage, "mcp", "config", "unknown")
+	h.fails(ExitUsage, CodeUsage, "mcp", "config", "codex", "extra")
+	h.env.ExecutablePath = func() (string, error) { return "relative/agent-board", nil }
+	h.fails(ExitError, "INTERNAL", "mcp", "config")
+}
+
 func TestTaskLifecycleCommands(t *testing.T) {
 	h := newHarness(t)
 	created := decodeJSON[ops.TaskResult](t, h.ok("task", "create", "--title", "First", "--acceptance", "it works")).Task
