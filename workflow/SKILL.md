@@ -62,7 +62,7 @@ The Orchestrator does not write implementation, does not verify, and does not ch
 The **only writer** of the implementation for its Task.
 
 - Implements the Task within its definition and self-checks: runs the applicable tests, lint, type checks, and real API/UI checks.
-- Delivers an identifiable version (a commit, or a stated diff fingerprint) along with evidence and limitations.
+- Delivers a stable, identifiable workspace (see [Git delivery boundary](#git-delivery-boundary)) along with evidence and limitations.
 - Reports blockers, scope questions, and out-of-scope findings to the Orchestrator.
 
 The Developer never declares PASS. Its self-review, and any reviewer or subagent it launches, are development checks, not Independent Verification.
@@ -106,7 +106,7 @@ The Board has exactly four states. This Skill uses them as follows:
 | `READY` | Defined, accepted, waiting to start, in priority order | `queue_task` by Human / delegate |
 | `IN_PROGRESS` | Started; development, delivery, verification, RC, correction, and takeover all happen here | Orchestrator, at start or on resume |
 | `BLOCKED` | Cannot continue without input that will not arrive in the current run | Orchestrator (or Human) |
-| `DONE` | An Independent Verifier PASS (or an explicit Human acceptance) is recorded for the delivered version | Orchestrator (or Human) |
+| `DONE` | An Independent Verifier PASS (or an explicit Human acceptance) is recorded, and the accepted commit holds exactly the verified content | Orchestrator (or Human) |
 
 Transitions used by the Skill:
 
@@ -135,7 +135,7 @@ Transitions used by the Skill:
 | `reorder_ready` | set priority | — | — | — |
 | `set_task_state` | any, as a decision | start, DONE, BLOCKED, resume | — | — |
 | `record_fact` `execution` | — | launches and replacements of roles | — | — |
-| `record_fact` `delivery` | — | on behalf of a Developer without Board access | each delivery | — |
+| `record_fact` `delivery` | — | accepted commit after PASS; on behalf of a Developer without Board access | each delivery | — |
 | `record_fact` `verification` | own acceptance decision | on behalf of a Verifier without Board access | — | each verdict |
 | `record_fact` `handoff` | — | when taking over or pausing | when stopping with work unfinished | — |
 | `record_fact` `note` | decisions | decisions, clarifications | as needed | as needed |
@@ -149,9 +149,9 @@ Facts are append-only and never change state. Write the body for a reader who ha
 | Kind | Body should say | Useful `data` |
 |---|---|---|
 | `execution` | which role was launched or replaced, and where | `role`, `harness`, `model`, `worktree`, `branch`, `session` |
-| `delivery` | what changed; the delivered version; checks run with raw results; what was not verified and why; limitations; known out-of-scope findings | `commit` or `fingerprint`, `branch` |
-| `verification` | verdict; exact version verified; evidence per acceptance criterion; what was not verified and why; for RC each issue with evidence; for BLOCKED what stops verification | `verdict` (`PASS`/`RC`/`BLOCKED`), `commit` or `fingerprint` |
-| `handoff` | what is done, what remains, workspace state, what the next person must check first, where the agent activity is | `worktree`, `branch`, `commit` |
+| `delivery` | what changed; baseline and fingerprint of the delivered diff; checks run with raw results; what was not verified and why; limitations; known out-of-scope findings. After PASS, the accepted commit and that it holds exactly the verified content | `baseline`, `fingerprint`, `branch`; `accepted_commit` |
+| `verification` | verdict; baseline and fingerprint verified; evidence per acceptance criterion; what was not verified and why; for RC each issue with evidence; for BLOCKED what stops verification | `verdict` (`PASS`/`RC`/`BLOCKED`), `baseline`, `fingerprint` |
+| `handoff` | what is done, what remains, workspace state, what the next person must check first, where the agent activity is | `worktree`, `branch`, `baseline`, `checkpoint` |
 | `note` | a Human decision, a clarification, a reason | — |
 
 Record every delivery and every Verifier verdict, including RC verdicts. They are what make takeover and re-verification possible without a progress file.
@@ -164,6 +164,17 @@ Record every delivery and every Verifier verdict, including RC verdicts. They ar
 - **reason** on `set_task_state` is a short human-readable line. It is required in practice for `BLOCKED`; omit it when resuming to clear it. Details belong in a fact.
 - Humans use the same operations through the Web Board or CLI. Its checks and audit are identical.
 
+## Git delivery boundary
+
+**The Task is the delivery boundary; RC is not.** Git records only the Task's verified delivery.
+
+- The Task has a **baseline**: the commit its workspace starts from.
+- Until PASS there is **no implementation commit**. Development, self-check, and every RC correction happen in the same uncommitted workspace. The Verifier verifies the full diff of that stable workspace against the baseline.
+- A delivery is identified by the baseline plus a **fingerprint** of that diff, including untracked files. Any method that reliably detects a change will do (a hash of `git diff --binary <baseline>` plus untracked file contents, for example). State the method in the `delivery` fact.
+- After PASS, the Developer changes nothing more. It commits the verified workspace once, as the Task's implementation commit.
+- **Checkpoint commits** are allowed only when there is a real recovery risk across sessions, across machines, or over a long interruption. Mark them clearly as checkpoints. They are never the accepted commit, and the final commit after PASS still forms the delivery (fold checkpoints in per project rules). The diff under verification is still measured from the baseline.
+- Push and merge need Human authorization unless the project delegates them.
+
 ## Workflow
 
 ### 1. Start
@@ -173,11 +184,11 @@ The Orchestrator:
 1. Takes the first Task in `list_ready`, unless a dependency or explicit instruction says otherwise.
 2. Reads the Task with `get_task`, plus its facts, and checks [readiness](#task-definition-and-readiness). If it is not ready, it does not start it; it reports to the Human (see [Stop for decision](#stop-for-decision)).
 3. Records `IN_PROGRESS` with `set_task_state`.
-4. Prepares the workspace (worktree/branch per project rules) and launches a Developer with the Task's full content, any prior facts, and the workspace location. It records an `execution` fact.
+4. Prepares a clean workspace (worktree/branch per project rules) and notes its baseline commit. It launches a Developer with the Task's full content, any prior facts, the workspace location, and the baseline. It records an `execution` fact, including the baseline.
 
 ### 2. Development and delivery
 
-The Developer works only within the Task definition and keeps its own plan internal. When done, it self-checks and makes the delivery identifiable: a commit on the task branch, or a stated diff fingerprint if project rules defer committing. It then records a `delivery` fact and returns the same summary to the Orchestrator.
+The Developer works only within the Task definition and keeps its own plan internal. When done, it self-checks, leaves the workspace stable and uncommitted, and computes the delivery fingerprint. It then records a `delivery` fact and returns the same summary to the Orchestrator.
 
 If the Developer hits a question it cannot settle within the Task definition, or the Task looks wrong, it stops that part and reports. It does not widen the scope, rewrite acceptance criteria, or set state.
 
@@ -185,17 +196,17 @@ If the Developer hits a question it cannot settle within the Task definition, or
 
 Before launching a Verifier, the Orchestrator confirms:
 
-- a `delivery` fact exists for the current version;
+- a `delivery` fact exists for the current workspace;
 - the Developer has finished self-checking and is no longer writing;
 - no other writer can touch the workspace;
-- the delivery is stable at the stated version.
+- the workspace still matches the delivered fingerprint.
 
-The Orchestrator then launches a **new** Independent Verifier with the Task, the delivery version, and the workspace. It records an `execution` fact. It passes the Developer's evidence along as material to check, not as a conclusion.
+The Orchestrator then launches a **new** Independent Verifier with the Task, the baseline and fingerprint, and the workspace. It records an `execution` fact. It passes the Developer's evidence along as material to check, not as a conclusion.
 
 The Verifier:
 
-- confirms the delivery version at the start and again at the end. If it changed, it stops, reports it, and its conclusion is void;
-- checks each acceptance criterion against the full diff and the related code, not only the Developer's summary;
+- confirms the fingerprint at the start and again at the end. If it changed, it stops, reports it, and its conclusion is void;
+- checks each acceptance criterion against the full diff from the baseline and the related code, not only the Developer's summary;
 - follows the real business path through code and tests. It judges whether mocks, hand-built data, or same-source assumptions bypass the core risk. It runs checks itself when the evidence is not enough, including real API/UI/database checks when they apply;
 - looks for missed edge cases, errors, logging, secrets, and changes outside the Task's scope;
 - may read earlier verification facts, but verifies the whole Task again rather than only the previous RC items;
@@ -205,7 +216,14 @@ Passing tests do not by themselves mean PASS. Any check that failed or was skipp
 
 ### 4. PASS → DONE
 
-When a Verifier returns PASS, the Orchestrator checks that it refers to the version still in the workspace. It then records `DONE`, with a short reason such as `Accepted <commit>`. The `verification` fact is the completion evidence.
+When a Verifier returns PASS:
+
+1. The Orchestrator checks that the PASS names the fingerprint still in the workspace.
+2. The Developer commits exactly that workspace as the Task's implementation commit, and changes nothing else.
+3. The Orchestrator checks two things: the commit contains only the verified content (its diff from the baseline matches the verified fingerprint), and the workspace is clean again. If either check fails, the commit is not accepted. Anything new is a new delivery that needs a new Verifier.
+4. The Orchestrator records a `delivery` fact naming the accepted commit, then records `DONE` with a short reason such as `Accepted <sha>`.
+
+The `verification` fact is the completion evidence; the accepted commit ties it to Git.
 
 Only an Independent Verifier PASS or an explicit Human acceptance (recorded as a `note` or `verification` fact by the Human) justifies DONE. The Developer's word, a self-review, or the Orchestrator's own reading do not.
 
@@ -215,7 +233,7 @@ An RC verdict means the delivery does not meet the Task, but it can be fixed wit
 
 1. The Task stays `IN_PROGRESS`. Nothing changes on the Board except the `verification` fact.
 2. The Orchestrator gives the RC issues and evidence to the current Developer, or to a replacement (see [Interruption and takeover](#interruption-and-takeover)).
-3. The Developer corrects, self-checks, and records a new `delivery` fact.
+3. The Developer corrects in the same uncommitted workspace, self-checks, and records a new `delivery` fact with the new fingerprint.
 4. The Orchestrator launches a **new** Independent Verifier. No conclusion from before the correction carries over.
 
 If the rounds stop converging, stop for decision. Signs of this: the same issue keeps returning, the Developer and Verifier disagree about what the criteria require, or a fix would need a definition change. The Orchestrator does not overrule a Verifier, and it does not record DONE over an open RC.
@@ -256,10 +274,10 @@ Continuing does **not** require the same agent instance. A Developer, Verifier, 
 
 - the Task;
 - its facts (`delivery`, `verification`, `handoff`) and events;
-- the workspace and Git state, including the uncommitted diff;
+- the workspace and Git state: the uncommitted diff against the baseline, and any checkpoint commits;
 - the predecessor's agent activity, where available.
 
-It re-checks any runtime state that may have changed, then does only the remaining work. If files change that nobody expected, the replacement or Orchestrator pauses writing and finds any executor that may still be running. Writing resumes only once the workspace is stable. Nothing is verified until it is stable.
+It re-checks any runtime state that may have changed, then does only the remaining work. A takeover in a different workspace or on another machine starts from a checkpoint commit. That is the case checkpoints exist for. If files change that nobody expected, the replacement or Orchestrator pauses writing and finds any executor that may still be running. Writing resumes only once the workspace is stable. Nothing is verified until it is stable.
 
 **Serious interruption.** If the goal, boundaries, dependencies, or workspace state are no longer reliable, pause. Within the existing definition the Orchestrator may roll back or restart the work. If recovery needs a definition change, stop for decision.
 
@@ -278,9 +296,9 @@ A Developer that must stop with work unfinished records a `handoff` fact, or rep
 After DONE, the Orchestrator closes out the Task:
 
 - Stops or releases the Task's Developer and Verifier sessions so nothing keeps writing.
-- Integrates the accepted version according to the project's Git rules. Push and merge need Human authorization unless the project delegates them. If integrating would change content (a non-trivial conflict resolution, say), that is new delivery: the Developer makes the change and a new Independent Verifier checks it before integration.
+- Integrates the accepted commit according to the project's Git rules. Push and merge need Human authorization unless the project delegates them. If integrating would change content (a non-trivial conflict resolution, say), that is new delivery: the Developer makes the change and a new Independent Verifier checks it before integration.
 - Drafts follow-up work found during the Task as unqueued Tasks, or reports it to the Human. It does not stretch the finished Task.
-- Reports to the Human: the Task, the accepted version, a verification summary, unverified items and limitations, and follow-ups.
+- Reports to the Human: the Task, the accepted commit, a verification summary, unverified items and limitations, and follow-ups.
 
 The Orchestrator then takes the next READY Task only if the current run authorizes continuing.
 
@@ -291,5 +309,5 @@ The Orchestrator then takes the next READY Task only if the current run authoriz
 - Nothing depends on a particular harness, model, or product.
 - Internal todos are not Board Tasks.
 - Developer self-checks never stand in for Independent Verification; every verification round, including after RC, uses a new Verifier.
-- No required progress file.
+- No required progress file, and no implementation commit before PASS.
 - New rules answer observed failures, not hypothetical ones.
