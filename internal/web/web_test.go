@@ -2,6 +2,7 @@ package web
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -594,5 +595,32 @@ func TestBannersComeFromClosedSets(t *testing.T) {
 	// The new-task modal is open only on request.
 	if !strings.Contains(f.get("/").body, `id="new-task-modal" hidden`) || strings.Contains(f.get("/?new=1").body, `id="new-task-modal" hidden`) {
 		t.Fatal("modal visibility")
+	}
+}
+
+func TestDrawerShowsReadyRankOnlyForReady(t *testing.T) {
+	f := newFixture(t)
+	// Tasks 1-3 are queued, then moved out of READY; their stored rank is untouched.
+	inProgress := f.setState(f.queue(f.create("in progress")), domain.StateInProgress)
+	done := f.setState(f.queue(f.create("done")), domain.StateDone)
+	blocked := f.setState(f.queue(f.create("blocked")), domain.StateBlocked)
+	unqueued := f.create("unqueued")
+	ready := f.queue(f.create("ready"))
+	if ready.ReadyRank == nil {
+		t.Fatal("queued task has no ready rank")
+	}
+
+	page := f.get(fmt.Sprintf("/?task=%d", ready.Number))
+	if !strings.Contains(page.body, zhCN.ReadyRank) || !strings.Contains(page.body, "data-ready-rank>"+fmt.Sprint(*ready.ReadyRank)+"<") {
+		t.Errorf("READY task detail does not show its ready rank %d", *ready.ReadyRank)
+	}
+	for _, task := range []domain.Task{inProgress, done, blocked, unqueued} {
+		page := f.get(fmt.Sprintf("/?task=%d", task.Number))
+		if !strings.Contains(page.body, fmt.Sprintf(`data-detail="%d"`, task.Number)) {
+			t.Fatalf("task %d detail not rendered", task.Number)
+		}
+		if strings.Contains(page.body, zhCN.ReadyRank) || strings.Contains(page.body, "data-ready-rank") {
+			t.Errorf("task %d detail shows ready rank", task.Number)
+		}
 	}
 }

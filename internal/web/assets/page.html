@@ -121,7 +121,7 @@
     <dl class="drawer-meta">
       <div><dt>{{$T.Version}}</dt><dd>{{$task.Version}}</dd></div>
       <div><dt>{{$T.QueuedAt}}</dt><dd>{{timePtr $task.QueuedAt}}</dd></div>
-      <div><dt>{{$T.ReadyRank}}</dt><dd>{{int64Ptr $task.ReadyRank}}</dd></div>
+      {{if isState $task.State "READY"}}<div><dt>{{$T.ReadyRank}}</dt><dd data-ready-rank>{{int64Ptr $task.ReadyRank}}</dd></div>{{end}}
       <div><dt>{{$T.CreatedAt}}</dt><dd>{{time $task.CreatedAt}}</dd></div>
       <div><dt>{{$T.UpdatedAt}}</dt><dd>{{time $task.UpdatedAt}}</dd></div>
     </dl>
