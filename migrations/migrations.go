@@ -26,7 +26,7 @@ var taskStoreSQL string
 // Tests verify each checksum against the exact embedded SQL bytes, so an
 // applied migration cannot be edited silently. After an intentional edit to an
 // unreleased migration, regenerate with: shasum -a 256 migrations/<file>.sql
-const taskStoreChecksum = "c388380df00e92b8c4480a0cf18120735cae77ac327c1c772f58cc20b0c38723"
+const taskStoreChecksum = "ecb944e2435bab2898ba1ddf3f5237e797e3083ed39603c2d09e47bafa66a248"
 
 var (
 	migrationNamePattern = regexp.MustCompile(`^[a-z][a-z0-9]*(?:_[a-z0-9]+)+$`)

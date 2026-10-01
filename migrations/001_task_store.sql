@@ -1,6 +1,7 @@
 -- Agent Board thin task store.
 -- Task-level state is an explicit recorded column. Nothing in this schema
--- derives state from facts, events, or runtime activity.
+-- derives state from facts, events, or runtime activity. A task has no
+-- lifecycle state until it is queued; queueing records READY.
 
 -- One row binding this database to a project identity, plus the READY queue
 -- version that guards reorders against lost updates.
@@ -17,14 +18,15 @@ CREATE TABLE tasks (
     title TEXT NOT NULL CHECK (length(trim(title)) > 0),
     description TEXT NOT NULL,
     acceptance_criteria TEXT NOT NULL,
-    state TEXT NOT NULL CHECK (state IN ('READY', 'IN_PROGRESS', 'DONE', 'BLOCKED')),
+    state TEXT CHECK (state IS NULL OR state IN ('READY', 'IN_PROGRESS', 'DONE', 'BLOCKED')),
     state_reason TEXT,
     queued_at TEXT,
     ready_rank INTEGER,
     version INTEGER NOT NULL CHECK (version >= 1),
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
-    CHECK ((queued_at IS NULL) = (ready_rank IS NULL))
+    CHECK ((queued_at IS NULL) = (ready_rank IS NULL)),
+    CHECK ((queued_at IS NULL) = (state IS NULL))
 ) STRICT;
 
 CREATE UNIQUE INDEX tasks_ready_rank ON tasks(ready_rank) WHERE ready_rank IS NOT NULL;

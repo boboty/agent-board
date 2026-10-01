@@ -74,7 +74,8 @@ func mutate[T any](ctx context.Context, s *Service, operation, key string, reque
 	return result, err
 }
 
-// CreateTask creates a task in state READY. It is not queued.
+// CreateTask creates an unqueued task. It has no lifecycle state until it is
+// queued.
 func (s *Service) CreateTask(ctx context.Context, in CreateTaskInput) (domain.Task, error) {
 	if err := in.normalize(); err != nil {
 		return domain.Task{}, err
@@ -89,13 +90,18 @@ func (s *Service) CreateTask(ctx context.Context, in CreateTaskInput) (domain.Ta
 			return domain.Task{}, err
 		}
 		task := domain.Task{
-			ID: id, Number: number, Title: in.Title, Description: in.Description,
-			AcceptanceCriteria: in.AcceptanceCriteria, State: domain.StateReady,
-			Version: 1, CreatedAt: now, UpdatedAt: now,
+			ID:                 id,
+			Number:             number,
+			Title:              in.Title,
+			Description:        in.Description,
+			AcceptanceCriteria: in.AcceptanceCriteria,
+			Version:            1,
+			CreatedAt:          now,
+			UpdatedAt:          now,
 		}
 		if _, err := tx.ExecContext(ctx, `INSERT INTO tasks(id, number, title, description, acceptance_criteria,
-			state, version, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?)`,
-			task.ID, task.Number, task.Title, task.Description, task.AcceptanceCriteria, task.State,
+			version, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 1, ?, ?)`,
+			task.ID, task.Number, task.Title, task.Description, task.AcceptanceCriteria,
 			sqlite.FormatTime(now), sqlite.FormatTime(now)); err != nil {
 			return domain.Task{}, err
 		}
@@ -142,8 +148,8 @@ func (s *Service) UpdateTask(ctx context.Context, in UpdateTaskInput) (domain.Ta
 	})
 }
 
-// QueueTask appends a task to the end of the READY ordering without changing
-// its state. It appears in the READY queue while its state is READY.
+// QueueTask queues an unqueued task: it explicitly records state READY and
+// appends the task to the end of the READY ordering.
 func (s *Service) QueueTask(ctx context.Context, in QueueTaskInput) (domain.Task, error) {
 	if err := in.normalize(); err != nil {
 		return domain.Task{}, err
@@ -161,7 +167,7 @@ func (s *Service) QueueTask(ctx context.Context, in QueueTaskInput) (domain.Task
 			return domain.Task{}, err
 		}
 		if err := updateTaskRow(ctx, tx, task.ID, task.Version, now,
-			"queued_at = ?, ready_rank = ?", sqlite.FormatTime(now), rank); err != nil {
+			"state = ?, queued_at = ?, ready_rank = ?", domain.StateReady, sqlite.FormatTime(now), rank); err != nil {
 			return domain.Task{}, err
 		}
 		if err := bumpReadyVersion(ctx, tx); err != nil {
@@ -169,16 +175,17 @@ func (s *Service) QueueTask(ctx context.Context, in QueueTaskInput) (domain.Task
 		}
 		task.Version++
 		if err := appendEvent(ctx, tx, &task, domain.EventTaskQueued, in.Actor,
-			map[string]any{"queued_at": now, "ready_rank": rank}, now); err != nil {
+			map[string]any{"queued_at": now, "ready_rank": rank, "state": domain.StateReady}, now); err != nil {
 			return domain.Task{}, err
 		}
 		return loadTask(ctx, tx, task.ID)
 	})
 }
 
-// SetTaskState records the requested task-level state. The Board applies no
-// transition policy: which role may set which state, and when, is defined by
-// the Workflow Skill.
+// SetTaskState records the requested task-level state on a queued task. The
+// Board applies no transition policy: which role may set which state, and
+// when, is defined by the Workflow Skill. An unqueued task has no lifecycle
+// yet; it enters READY only through QueueTask.
 func (s *Service) SetTaskState(ctx context.Context, in SetTaskStateInput) (domain.Task, error) {
 	if err := in.normalize(); err != nil {
 		return domain.Task{}, err
@@ -188,16 +195,18 @@ func (s *Service) SetTaskState(ctx context.Context, in SetTaskStateInput) (domai
 		if err != nil {
 			return domain.Task{}, err
 		}
+		if task.State == nil {
+			return domain.Task{}, domain.NewError(domain.CodeTaskNotQueued,
+				fmt.Sprintf("task #%d has no lifecycle state until it is queued", task.Number), false)
+		}
 		if err := updateTaskRow(ctx, tx, task.ID, task.Version, now,
 			"state = ?, state_reason = ?", in.State, nullableString(in.Reason)); err != nil {
 			return domain.Task{}, err
 		}
-		if task.QueuedAt != nil {
-			if err := bumpReadyVersion(ctx, tx); err != nil {
-				return domain.Task{}, err
-			}
+		if err := bumpReadyVersion(ctx, tx); err != nil {
+			return domain.Task{}, err
 		}
-		from := task.State
+		from := *task.State
 		task.Version++
 		if err := appendEvent(ctx, tx, &task, domain.EventTaskStateSet, in.Actor,
 			map[string]any{"from": from, "to": in.State, "reason": in.Reason}, now); err != nil {

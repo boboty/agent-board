@@ -54,16 +54,17 @@ func (k FactKind) Valid() bool {
 
 // Task is a schedulable, verifiable, hand-off-able unit of work.
 //
-// State is only ever changed by an explicit set-state request. Queue
-// membership (QueuedAt/ReadyRank) is orthogonal to State: a task appears in
-// the READY queue when it is queued and its State is READY.
+// A task has no lifecycle state (State is nil) until it is queued; queueing
+// explicitly records READY. After that, State changes only through an
+// explicit set-state request and is always one of the four States. A task
+// appears in the READY queue while it is queued and its State is READY.
 type Task struct {
 	ID                 string     `json:"id"`
 	Number             int64      `json:"number"`
 	Title              string     `json:"title"`
 	Description        string     `json:"description"`
 	AcceptanceCriteria string     `json:"acceptance_criteria"`
-	State              State      `json:"state"`
+	State              *State     `json:"state"`
 	StateReason        *string    `json:"state_reason,omitempty"`
 	QueuedAt           *time.Time `json:"queued_at,omitempty"`
 	ReadyRank          *int64     `json:"ready_rank,omitempty"`

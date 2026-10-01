@@ -16,6 +16,9 @@ const (
 	// CodeReadyOrderConflict identifies a READY reorder whose expected READY
 	// version or task set no longer matches the stored READY queue.
 	CodeReadyOrderConflict = "READY_ORDER_CONFLICT"
+	// CodeTaskNotQueued identifies a state request for a task that has no
+	// lifecycle state yet because it has not been queued.
+	CodeTaskNotQueued = "TASK_NOT_QUEUED"
 	// CodeAlreadyQueued identifies a queue request for a task that is already queued.
 	CodeAlreadyQueued = "ALREADY_QUEUED"
 	// CodeIdempotencyConflict identifies reuse of an idempotency key with a

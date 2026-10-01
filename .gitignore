@@ -12,7 +12,6 @@ coverage.*
 *.db-shm
 *.db-wal
 .agent-board/
-.agent-board.json
 
 # Editors / OS
 .DS_Store

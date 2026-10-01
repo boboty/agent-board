@@ -16,7 +16,7 @@ import (
 //
 // Task references accept a task ID (ULID) or a task number ("12" or "#12").
 
-// CreateTaskInput creates a task in state READY, not yet queued.
+// CreateTaskInput creates an unqueued task with no lifecycle state.
 type CreateTaskInput struct {
 	Actor              string `json:"actor"`
 	IdempotencyKey     string `json:"-"`
@@ -25,7 +25,8 @@ type CreateTaskInput struct {
 	AcceptanceCriteria string `json:"acceptance_criteria"`
 }
 
-// ListTasksInput filters tasks. Empty filters match every task. Results are
+// ListTasksInput filters tasks. Empty filters match every task; a States
+// filter never matches unqueued tasks, which have no state. Results are
 // ordered by task number.
 type ListTasksInput struct {
 	States []domain.State `json:"states,omitempty"`
@@ -43,8 +44,8 @@ type UpdateTaskInput struct {
 	AcceptanceCriteria *string `json:"acceptance_criteria,omitempty"`
 }
 
-// QueueTaskInput appends a task to the end of the READY ordering. Queueing
-// does not change task state.
+// QueueTaskInput queues an unqueued task: it records state READY and appends
+// the task to the end of the READY ordering.
 type QueueTaskInput struct {
 	Actor           string `json:"actor"`
 	IdempotencyKey  string `json:"-"`
@@ -52,9 +53,9 @@ type QueueTaskInput struct {
 	ExpectedVersion int64  `json:"expected_version"`
 }
 
-// SetTaskStateInput records an explicit task-level state. Any state may be
-// recorded from any state; Reason replaces the task's state reason (nil
-// clears it).
+// SetTaskStateInput records an explicit task-level state on a queued task.
+// Any of the four states may be recorded from any state; Reason replaces the
+// task's state reason (nil clears it).
 type SetTaskStateInput struct {
 	Actor           string       `json:"actor"`
 	IdempotencyKey  string       `json:"-"`

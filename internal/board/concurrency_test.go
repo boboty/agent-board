@@ -198,7 +198,7 @@ func TestKilledWriterLeavesNoPartialCommit(t *testing.T) {
 	}
 	f := newFixture(t)
 	s := f.open(t)
-	task := mustCreate(t, s, "t")
+	task := mustQueue(t, s, mustCreate(t, s, "t"))
 
 	cmd := exec.Command(os.Args[0], "-test.run=^TestHelperProcess$")
 	cmd.Env = append(os.Environ(), helperEnv+"=hang-in-write", helperDBEnv+"="+f.path, "AGENT_BOARD_TEST_SHARED="+task.ID)
@@ -221,15 +221,15 @@ func TestKilledWriterLeavesNoPartialCommit(t *testing.T) {
 	_ = cmd.Wait()
 
 	stored := mustGet(t, s, task.ID)
-	if stored.State != domain.StateReady || stored.Version != 1 {
+	if stateOf(stored) != domain.StateReady || stored.Version != 2 {
 		t.Fatalf("killed transaction leaked: %+v", stored)
 	}
-	if events := taskEvents(t, s, task.ID); len(events) != 1 {
+	if events := taskEvents(t, s, task.ID); len(events) != 2 {
 		t.Fatalf("killed transaction leaked events: %d", len(events))
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
-	if _, err := s.SetTaskState(ctx, SetTaskStateInput{Actor: actor, Task: task.ID, ExpectedVersion: 1, State: domain.StateInProgress}); err != nil {
+	if _, err := s.SetTaskState(ctx, SetTaskStateInput{Actor: actor, Task: task.ID, ExpectedVersion: 2, State: domain.StateInProgress}); err != nil {
 		t.Fatalf("write after killed writer: %v", err)
 	}
 	assertAuditConsistent(t, f)
@@ -268,7 +268,7 @@ func TestHelperProcess(t *testing.T) {
 				return err
 			}
 			if _, err := tx.ExecContext(ctx, `INSERT INTO task_events(task_id, type, actor, task_version, payload, created_at)
-				VALUES (?, 'task_state_set', 'doomed', 2, '{}', '2026-01-01T00:00:00.000000000Z')`, id); err != nil {
+				VALUES (?, 'task_state_set', 'doomed', 3, '{}', '2026-01-01T00:00:00.000000000Z')`, id); err != nil {
 				return err
 			}
 			fmt.Println("in-transaction")

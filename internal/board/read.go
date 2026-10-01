@@ -231,12 +231,16 @@ func queryTasks(ctx context.Context, q sqlite.Queryer, query string, args ...any
 	tasks := []domain.Task{}
 	for rows.Next() {
 		var task domain.Task
-		var reason, queuedAt sql.NullString
+		var state, reason, queuedAt sql.NullString
 		var rank sql.NullInt64
 		var createdAt, updatedAt string
 		if err := rows.Scan(&task.ID, &task.Number, &task.Title, &task.Description, &task.AcceptanceCriteria,
-			&task.State, &reason, &queuedAt, &rank, &task.Version, &createdAt, &updatedAt); err != nil {
+			&state, &reason, &queuedAt, &rank, &task.Version, &createdAt, &updatedAt); err != nil {
 			return nil, err
+		}
+		if state.Valid {
+			value := domain.State(state.String)
+			task.State = &value
 		}
 		if reason.Valid {
 			task.StateReason = &reason.String

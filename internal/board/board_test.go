@@ -17,7 +17,7 @@ func TestCreateGetListAndUpdateTask(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if task.Number != 1 || task.Title != "Thin store" || task.State != domain.StateReady || task.Version != 1 ||
+	if task.Number != 1 || task.Title != "Thin store" || task.State != nil || task.Version != 1 ||
 		task.QueuedAt != nil || task.ReadyRank != nil || task.Description != "d" || task.AcceptanceCriteria != "ac" {
 		t.Fatalf("created task = %+v", task)
 	}
@@ -39,7 +39,7 @@ func TestCreateGetListAndUpdateTask(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if updated.Title != "Thin task store" || updated.Version != 2 || updated.State != domain.StateReady {
+	if updated.Title != "Thin task store" || updated.Version != 2 || updated.State != nil {
 		t.Fatalf("updated task = %+v", updated)
 	}
 	events := taskEvents(t, s, task.ID)
@@ -59,56 +59,82 @@ func TestCreateGetListAndUpdateTask(t *testing.T) {
 	_, err = s.UpdateTask(ctx, UpdateTaskInput{Actor: actor, Task: "#1", ExpectedVersion: 2})
 	wantCode(t, err, domain.CodeInvalidArgument)
 
-	second := mustCreate(t, s, "second")
+	second := mustQueue(t, s, mustCreate(t, s, "second"))
 	mustSetState(t, s, second, domain.StateDone, nil)
 	all, _ := s.ListTasks(ctx, ListTasksInput{})
 	done, _ := s.ListTasks(ctx, ListTasksInput{States: []domain.State{domain.StateDone}})
+	anyState, _ := s.ListTasks(ctx, ListTasksInput{States: domain.States})
 	unqueued, _ := s.ListTasks(ctx, ListTasksInput{Queued: ptr(false)})
-	if len(all) != 2 || all[0].Number != 1 || all[1].Number != 2 || len(done) != 1 || done[0].ID != second.ID || len(unqueued) != 2 {
-		t.Fatalf("list results: all=%d done=%d unqueued=%d", len(all), len(done), len(unqueued))
+	if len(all) != 2 || all[0].Number != 1 || all[1].Number != 2 || len(done) != 1 || done[0].ID != second.ID ||
+		len(anyState) != 1 || len(unqueued) != 1 || unqueued[0].ID != task.ID {
+		t.Fatalf("list results: all=%d done=%d anyState=%d unqueued=%d", len(all), len(done), len(anyState), len(unqueued))
 	}
 	_, err = s.ListTasks(ctx, ListTasksInput{States: []domain.State{"REVIEW"}})
 	wantCode(t, err, domain.CodeInvalidArgument)
 	assertAuditConsistent(t, f)
 }
 
-func TestQueueTaskAppendsToReadyWithoutChangingState(t *testing.T) {
+func TestQueueTaskEntersReadyExplicitly(t *testing.T) {
 	s, f := newService(t)
 	ctx := context.Background()
 	a, b, c := mustCreate(t, s, "a"), mustCreate(t, s, "b"), mustCreate(t, s, "c")
 
+	// Unqueued tasks have no lifecycle state and are not in READY.
 	version, ready := readyIDs(t, s)
-	if version != 1 || len(ready) != 0 {
-		t.Fatalf("fresh READY queue = v%d %v, want empty: created tasks are not queued", version, ready)
+	if version != 1 || len(ready) != 0 || a.State != nil || a.QueuedAt != nil {
+		t.Fatalf("fresh READY queue = v%d %v, task a = %+v", version, ready, a)
 	}
+	_, err := s.SetTaskState(ctx, SetTaskStateInput{Actor: actor, Task: a.ID, ExpectedVersion: a.Version, State: domain.StateReady})
+	wantCode(t, err, domain.CodeTaskNotQueued)
+	_, err = s.SetTaskState(ctx, SetTaskStateInput{Actor: actor, Task: a.ID, ExpectedVersion: a.Version, State: domain.StateInProgress})
+	wantCode(t, err, domain.CodeTaskNotQueued)
+	if stored := mustGet(t, s, a.ID); stored.State != nil || stored.Version != 1 || len(taskEvents(t, s, a.ID)) != 1 {
+		t.Fatalf("rejected state request changed task: %+v", stored)
+	}
+
 	c = mustQueue(t, s, c)
 	a = mustQueue(t, s, a)
-	if c.State != domain.StateReady || c.QueuedAt == nil || c.Version != 2 {
+	if stateOf(c) != domain.StateReady || c.QueuedAt == nil || c.ReadyRank == nil || c.Version != 2 {
 		t.Fatalf("queued task = %+v", c)
+	}
+	events := taskEvents(t, s, c.ID)
+	if last := events[len(events)-1]; last.Type != domain.EventTaskQueued || decodePayload(t, last)["state"] != string(domain.StateReady) {
+		t.Fatalf("queue event = %+v", last)
 	}
 	version, ready = readyIDs(t, s)
 	if version != 3 || !reflect.DeepEqual(ready, []string{c.ID, a.ID}) {
 		t.Fatalf("READY = v%d %v", version, ready)
 	}
 
-	_, err := s.QueueTask(ctx, QueueTaskInput{Actor: actor, Task: a.ID, ExpectedVersion: a.Version})
+	_, err = s.QueueTask(ctx, QueueTaskInput{Actor: actor, Task: a.ID, ExpectedVersion: a.Version})
 	wantCode(t, err, domain.CodeAlreadyQueued)
 
-	// Queue membership is orthogonal to state: a queued task that is not
-	// READY is not in the READY view, and queueing never sets state.
-	b = mustSetState(t, s, b, domain.StateBlocked, ptr("waiting on API key"))
+	// A queued task that leaves READY drops out of the READY view and
+	// reappears in its slot when READY is recorded again.
 	b = mustQueue(t, s, b)
-	if b.State != domain.StateBlocked {
-		t.Fatalf("queueing changed state to %s", b.State)
-	}
+	b = mustSetState(t, s, b, domain.StateBlocked, ptr("waiting on API key"))
 	_, ready = readyIDs(t, s)
 	if !reflect.DeepEqual(ready, []string{c.ID, a.ID}) {
 		t.Fatalf("READY = %v, blocked task must not appear", ready)
 	}
+	_, err = s.QueueTask(ctx, QueueTaskInput{Actor: actor, Task: b.ID, ExpectedVersion: b.Version})
+	wantCode(t, err, domain.CodeAlreadyQueued)
 	mustSetState(t, s, b, domain.StateReady, nil)
 	_, ready = readyIDs(t, s)
 	if !reflect.DeepEqual(ready, []string{c.ID, a.ID, b.ID}) {
 		t.Fatalf("READY = %v after b returned to READY", ready)
+	}
+
+	// Storage enforces that state is present exactly when the task is queued.
+	raw := f.raw(t)
+	unqueued := mustCreate(t, s, "d")
+	for _, statement := range []string{
+		"UPDATE tasks SET state = 'READY' WHERE id = '" + unqueued.ID + "'",
+		"UPDATE tasks SET state = NULL WHERE id = '" + a.ID + "'",
+	} {
+		if _, err := raw.Exec(statement); err == nil {
+			t.Errorf("%q succeeded; state must be set exactly when queued", statement)
+		}
 	}
 	assertAuditConsistent(t, f)
 }
@@ -116,7 +142,7 @@ func TestQueueTaskAppendsToReadyWithoutChangingState(t *testing.T) {
 func TestSetTaskStateRecordsAnyOfTheFourStatesExplicitly(t *testing.T) {
 	s, f := newService(t)
 	ctx := context.Background()
-	task := mustCreate(t, s, "t")
+	task := mustQueue(t, s, mustCreate(t, s, "t"))
 
 	// The Board applies no transition policy; every state is reachable from
 	// every state, including re-recording the current one.
@@ -133,10 +159,10 @@ func TestSetTaskStateRecordsAnyOfTheFourStatesExplicitly(t *testing.T) {
 		{domain.StateDone, nil},
 	}
 	for i, step := range sequence {
-		before := task.State
+		before := stateOf(task)
 		task = mustSetState(t, s, task, step.state, step.reason)
 		stored := mustGet(t, s, task.ID)
-		if stored.State != step.state || stored.Version != int64(i+2) || !reflect.DeepEqual(stored.StateReason, step.reason) {
+		if stateOf(stored) != step.state || stored.Version != int64(i+3) || !reflect.DeepEqual(stored.StateReason, step.reason) {
 			t.Fatalf("step %d stored = %+v", i, stored)
 		}
 		events := taskEvents(t, s, task.ID)
@@ -176,7 +202,7 @@ func TestVersionConflictNeverSilentlyOverwrites(t *testing.T) {
 	wantCode(t, err, domain.CodeVersionConflict)
 
 	stored := mustGet(t, s, task.ID)
-	if stored.Title != "from A" || stored.State != domain.StateReady || stored.Version != 2 || stored.QueuedAt != nil {
+	if stored.Title != "from A" || stored.State != nil || stored.Version != 2 || stored.QueuedAt != nil {
 		t.Fatalf("stored = %+v; a conflicting write leaked", stored)
 	}
 	if n := len(taskEvents(t, s, task.ID)); n != 2 {
@@ -274,7 +300,8 @@ func TestIdempotentRetriesApplyOnce(t *testing.T) {
 
 	// A replayed state change returns its original result even after later
 	// mutations, and does not apply again.
-	setIn := SetTaskStateInput{Actor: actor, IdempotencyKey: "start-1", Task: first.ID, ExpectedVersion: 1, State: domain.StateInProgress}
+	mustQueue(t, s, first)
+	setIn := SetTaskStateInput{Actor: actor, IdempotencyKey: "start-1", Task: first.ID, ExpectedVersion: 2, State: domain.StateInProgress}
 	started, err := s.SetTaskState(ctx, setIn)
 	if err != nil {
 		t.Fatal(err)
@@ -284,7 +311,7 @@ func TestIdempotentRetriesApplyOnce(t *testing.T) {
 	if err != nil || !reflect.DeepEqual(again, started) {
 		t.Fatalf("replayed set state = %+v, %v", again, err)
 	}
-	if stored := mustGet(t, s, first.ID); stored.State != domain.StateDone || stored.Version != 3 {
+	if stored := mustGet(t, s, first.ID); stateOf(stored) != domain.StateDone || stored.Version != 4 {
 		t.Fatalf("stored after replay = %+v", stored)
 	}
 
@@ -310,7 +337,7 @@ func TestIdempotentRetriesApplyOnce(t *testing.T) {
 func TestFactsAreRecordedAndNeverChangeState(t *testing.T) {
 	s, f := newService(t)
 	ctx := context.Background()
-	task := mustSetState(t, s, mustCreate(t, s, "t"), domain.StateInProgress, nil)
+	task := mustSetState(t, s, mustQueue(t, s, mustCreate(t, s, "t")), domain.StateInProgress, nil)
 
 	// Facts that a workflow engine might be tempted to interpret. The Board
 	// must record them and leave state alone.
@@ -328,7 +355,7 @@ func TestFactsAreRecordedAndNeverChangeState(t *testing.T) {
 			t.Fatalf("RecordFact(%s) error = %v", in.Kind, err)
 		}
 		stored := mustGet(t, s, task.ID)
-		if stored.State != domain.StateInProgress || stored.Version != task.Version || !stored.UpdatedAt.Equal(task.UpdatedAt) {
+		if stateOf(stored) != domain.StateInProgress || stored.Version != task.Version || !stored.UpdatedAt.Equal(task.UpdatedAt) {
 			t.Fatalf("recording a %s fact changed the task: %+v", in.Kind, stored)
 		}
 	}
@@ -371,6 +398,7 @@ func TestFactsAreRecordedAndNeverChangeState(t *testing.T) {
 func TestMutationAndEventCommitTogether(t *testing.T) {
 	s, f := newService(t)
 	ctx := context.Background()
+	queued := mustQueue(t, s, mustCreate(t, s, "queued"))
 	task := mustCreate(t, s, "t")
 	raw := f.raw(t)
 	if _, err := raw.Exec(`CREATE TRIGGER fail_audit BEFORE INSERT ON task_events
@@ -379,7 +407,7 @@ func TestMutationAndEventCommitTogether(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, err := s.SetTaskState(ctx, SetTaskStateInput{Actor: actor, IdempotencyKey: "k", Task: task.ID, ExpectedVersion: 1, State: domain.StateDone})
+	_, err := s.SetTaskState(ctx, SetTaskStateInput{Actor: actor, IdempotencyKey: "k", Task: queued.ID, ExpectedVersion: 2, State: domain.StateDone})
 	wantCode(t, err, domain.CodeStorageConstraint)
 	_, err = s.QueueTask(ctx, QueueTaskInput{Actor: actor, Task: task.ID, ExpectedVersion: 1})
 	wantCode(t, err, domain.CodeStorageConstraint)
@@ -388,22 +416,25 @@ func TestMutationAndEventCommitTogether(t *testing.T) {
 	_, err = s.CreateTask(ctx, CreateTaskInput{Actor: actor, Title: "never"})
 	wantCode(t, err, domain.CodeStorageConstraint)
 
-	if stored := mustGet(t, s, task.ID); stored.State != domain.StateReady || stored.Version != 1 || stored.QueuedAt != nil {
-		t.Fatalf("partial commit: %+v", stored)
+	if stored := mustGet(t, s, queued.ID); stateOf(stored) != domain.StateReady || stored.Version != 2 {
+		t.Fatalf("partial commit of state change: %+v", stored)
+	}
+	if stored := mustGet(t, s, task.ID); stored.State != nil || stored.Version != 1 || stored.QueuedAt != nil {
+		t.Fatalf("partial commit of queue: %+v", stored)
 	}
 	var facts, tasks, keys, readyVersion int
 	_ = raw.QueryRow("SELECT count(*) FROM task_facts").Scan(&facts)
 	_ = raw.QueryRow("SELECT count(*) FROM tasks").Scan(&tasks)
 	_ = raw.QueryRow("SELECT count(*) FROM idempotency_records").Scan(&keys)
 	_ = raw.QueryRow("SELECT ready_version FROM board").Scan(&readyVersion)
-	if facts != 0 || tasks != 1 || keys != 0 || readyVersion != 1 {
+	if facts != 0 || tasks != 2 || keys != 0 || readyVersion != 2 {
 		t.Fatalf("partial commit: facts=%d tasks=%d keys=%d ready_version=%d", facts, tasks, keys, readyVersion)
 	}
 
 	if _, err := raw.Exec("DROP TRIGGER fail_audit"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.SetTaskState(ctx, SetTaskStateInput{Actor: actor, IdempotencyKey: "k", Task: task.ID, ExpectedVersion: 1, State: domain.StateDone}); err != nil {
+	if _, err := s.SetTaskState(ctx, SetTaskStateInput{Actor: actor, IdempotencyKey: "k", Task: queued.ID, ExpectedVersion: 2, State: domain.StateDone}); err != nil {
 		t.Fatalf("retry after failure: %v", err)
 	}
 	assertAuditConsistent(t, f)
@@ -414,14 +445,14 @@ func TestListEventsPagesInCommitOrder(t *testing.T) {
 	ctx := context.Background()
 	a := mustCreate(t, s, "a")
 	b := mustCreate(t, s, "b")
-	mustSetState(t, s, a, domain.StateInProgress, nil)
+	mustQueue(t, s, a)
 
 	page1, err := s.ListEvents(ctx, ListEventsInput{Limit: 2})
 	if err != nil || len(page1) != 2 {
 		t.Fatalf("page1 = %d, %v", len(page1), err)
 	}
 	page2, _ := s.ListEvents(ctx, ListEventsInput{AfterID: page1[1].ID, Limit: 2})
-	if len(page2) != 1 || page2[0].Type != domain.EventTaskStateSet || page2[0].ID <= page1[1].ID {
+	if len(page2) != 1 || page2[0].Type != domain.EventTaskQueued || page2[0].ID <= page1[1].ID {
 		t.Fatalf("page2 = %+v", page2)
 	}
 	if events := taskEvents(t, s, "#2"); len(events) != 1 || *events[0].TaskID != b.ID {

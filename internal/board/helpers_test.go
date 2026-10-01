@@ -168,3 +168,11 @@ func decodePayload(t *testing.T, event domain.TaskEvent) map[string]any {
 	}
 	return payload
 }
+
+// stateOf returns a task's lifecycle state, or "" for an unqueued task.
+func stateOf(task domain.Task) domain.State {
+	if task.State == nil {
+		return ""
+	}
+	return *task.State
+}
