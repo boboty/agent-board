@@ -20,6 +20,7 @@ import (
 	"github.com/boboty/agent-board/internal/ops"
 	"github.com/boboty/agent-board/internal/projectconfig"
 	"github.com/boboty/agent-board/internal/workspace"
+	"github.com/boboty/agent-board/workflow"
 )
 
 type harness struct {
@@ -98,6 +99,67 @@ func TestInitAndCheck(t *testing.T) {
 	}
 	h.fails(ExitError, projectconfig.CodeProjectAlreadyInitialized, "init")
 	h.fails(ExitError, projectconfig.CodeProjectNotFound, "check", "--dir", t.TempDir())
+}
+
+func TestSkillCommands(t *testing.T) {
+	home := t.TempDir()
+	h := &harness{t: t, env: Env{Home: home}}
+	targets := []struct {
+		harness string
+		path    string
+	}{
+		{"claude-code", filepath.Join(home, ".claude", "skills", "agent-board-workflow", "SKILL.md")},
+		{"codex", filepath.Join(home, ".codex", "skills", "agent-board-workflow", "SKILL.md")},
+		{"opencode", filepath.Join(home, ".agents", "skills", "agent-board-workflow", "SKILL.md")},
+	}
+
+	check := func(want string) {
+		t.Helper()
+		result := decodeJSON[struct {
+			Skill  string `json:"skill"`
+			Status []struct {
+				Harness string `json:"harness"`
+				Path    string `json:"path"`
+				Status  string `json:"status"`
+			} `json:"status"`
+		}](t, h.ok("skill", "check"))
+		if result.Skill != "agent-board-workflow" || len(result.Status) != len(targets) {
+			t.Fatalf("skill check: %+v", result)
+		}
+		for i, got := range result.Status {
+			if got.Harness != targets[i].harness || got.Path != targets[i].path || got.Status != want {
+				t.Fatalf("skill status[%d] = %+v, want %s at %s", i, got, want, targets[i].path)
+			}
+		}
+	}
+
+	check("missing")
+	show := h.ok("skill", "show")
+	if show != workflow.Skill {
+		t.Fatal("skill show differs from embedded content")
+	}
+	h.ok("skill", "install")
+	check("current")
+	for _, target := range targets {
+		contents, err := os.ReadFile(target.path)
+		if err != nil || string(contents) != show {
+			t.Fatalf("installed %s skill mismatch: %v", target.harness, err)
+		}
+	}
+	if err := os.WriteFile(targets[1].path, []byte("stale"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	result := decodeJSON[struct {
+		Status []struct {
+			Status string `json:"status"`
+		} `json:"status"`
+	}](t, h.ok("skill", "check"))
+	if result.Status[1].Status != "different" {
+		t.Fatalf("different content status = %+v", result.Status)
+	}
+	h.ok("skill", "install")
+	check("current")
+	h.fails(ExitUsage, CodeUsage, "skill", "show", "extra")
 }
 
 func TestTaskLifecycleCommands(t *testing.T) {

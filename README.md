@@ -67,6 +67,26 @@ or 2 (usage error). `agent-board call <operation> '<json>'` invokes any
 operation through the same dispatch as MCP `tools/call`. The default actor is
 `$AGENT_BOARD_ACTOR`, overridden by `--actor`.
 
+### Workflow Skill
+
+`workflow/SKILL.md` is the canonical Skill source and is embedded in the
+`agent-board` binary. A binary can install or display it without access to the
+source repository:
+
+```bash
+agent-board skill install
+agent-board skill check
+agent-board skill show
+```
+
+Install writes the same embedded content to Claude Code
+(`~/.claude/skills/agent-board-workflow/SKILL.md`), Codex
+(`~/.codex/skills/agent-board-workflow/SKILL.md`), and OpenCode
+(`~/.agents/skills/agent-board-workflow/SKILL.md`). Re-running install safely
+replaces those files with the binary's embedded version. `skill check` returns
+JSON status (`missing`, `current`, or `different`) and paths for all three;
+`skill show` prints the embedded Markdown as plain text.
+
 ### Web Board
 
 `agent-board web` serves a browser Board for people on a loopback address

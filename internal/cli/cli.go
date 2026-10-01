@@ -13,6 +13,7 @@ import (
 	"io"
 	"net"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync/atomic"
 
@@ -25,6 +26,7 @@ import (
 	"github.com/boboty/agent-board/internal/projectconfig"
 	"github.com/boboty/agent-board/internal/web"
 	"github.com/boboty/agent-board/internal/workspace"
+	"github.com/boboty/agent-board/workflow"
 )
 
 // Env is everything the CLI reads from its process.
@@ -59,6 +61,11 @@ Project:
   board                        show the READY queue and every task
   mcp                          serve the Board as MCP tools over stdio
   web [--addr 127.0.0.1:7420]  serve the Web Board on a loopback address
+
+Workflow Skill:
+  skill install                 install the embedded Skill for Claude Code, Codex, and OpenCode
+  skill check                   report whether each supported Harness has the embedded Skill
+  skill show                    print the embedded Skill content
 
 Tasks:
   task create --title T [--description D] [--acceptance A]
@@ -152,6 +159,20 @@ func run(ctx context.Context, args []string, env Env) error {
 		return runMCP(ctx, rest, env)
 	case "web":
 		return runWeb(ctx, rest, env)
+	case "skill":
+		if len(rest) == 0 {
+			return usagef("skill: missing subcommand")
+		}
+		switch rest[0] {
+		case "install":
+			return runSkillInstall(rest[1:], env)
+		case "check":
+			return runSkillCheck(rest[1:], env)
+		case "show":
+			return runSkillShow(rest[1:], env)
+		default:
+			return usagef("unknown command %q", "skill "+rest[0])
+		}
 	case "events":
 		return runEvents(ctx, rest, env)
 	case "history":
@@ -173,6 +194,72 @@ func run(ctx context.Context, args []string, env Env) error {
 	default:
 		return usagef("unknown command %q", name)
 	}
+}
+
+type skillTarget struct {
+	Harness string `json:"harness"`
+	Path    string `json:"path"`
+}
+
+func skillTargets(home string) []skillTarget {
+	return []skillTarget{
+		{"claude-code", filepath.Join(home, ".claude", "skills", "agent-board-workflow", "SKILL.md")},
+		{"codex", filepath.Join(home, ".codex", "skills", "agent-board-workflow", "SKILL.md")},
+		{"opencode", filepath.Join(home, ".agents", "skills", "agent-board-workflow", "SKILL.md")},
+	}
+}
+
+type skillInstallStatus struct {
+	skillTarget
+	Status string `json:"status"`
+}
+
+func runSkillInstall(args []string, env Env) error {
+	if len(args) != 0 {
+		return usagef("skill install: unexpected arguments")
+	}
+	targets := skillTargets(env.Home)
+	statuses := make([]skillInstallStatus, 0, len(targets))
+	for _, target := range targets {
+		if err := os.MkdirAll(filepath.Dir(target.Path), 0o755); err != nil {
+			return fmt.Errorf("create %s skill directory: %w", target.Harness, err)
+		}
+		if err := os.WriteFile(target.Path, []byte(workflow.Skill), 0o644); err != nil {
+			return fmt.Errorf("install %s skill: %w", target.Harness, err)
+		}
+		statuses = append(statuses, skillInstallStatus{skillTarget: target, Status: "installed"})
+	}
+	return writeJSON(env.Stdout, map[string]any{"skill": "agent-board-workflow", "status": statuses})
+}
+
+func runSkillCheck(args []string, env Env) error {
+	if len(args) != 0 {
+		return usagef("skill check: unexpected arguments")
+	}
+	targets := skillTargets(env.Home)
+	statuses := make([]skillInstallStatus, 0, len(targets))
+	for _, target := range targets {
+		contents, err := os.ReadFile(target.Path)
+		status := "missing"
+		switch {
+		case err == nil && string(contents) == workflow.Skill:
+			status = "current"
+		case err == nil:
+			status = "different"
+		case !errors.Is(err, os.ErrNotExist):
+			return fmt.Errorf("check %s skill: %w", target.Harness, err)
+		}
+		statuses = append(statuses, skillInstallStatus{skillTarget: target, Status: status})
+	}
+	return writeJSON(env.Stdout, map[string]any{"skill": "agent-board-workflow", "status": statuses})
+}
+
+func runSkillShow(args []string, env Env) error {
+	if len(args) != 0 {
+		return usagef("skill show: unexpected arguments")
+	}
+	_, err := io.WriteString(env.Stdout, workflow.Skill)
+	return err
 }
 
 var subcommands map[string]func(context.Context, []string, Env) error
