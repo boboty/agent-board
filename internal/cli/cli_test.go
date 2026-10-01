@@ -10,7 +10,6 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strconv"
 	"strings"
 	"testing"
@@ -35,7 +34,7 @@ func newHarness(t *testing.T) *harness {
 	repo := t.TempDir()
 	h := &harness{t: t, repo: repo, env: Env{
 		Dir:     repo,
-		Paths:   projectconfig.PathInputs{GOOS: runtime.GOOS, HomeDir: home, XDGDataHome: filepath.Join(home, "xdg"), LocalAppData: home},
+		Home:    home,
 		Actor:   "cli-test",
 		Version: "test",
 	}}

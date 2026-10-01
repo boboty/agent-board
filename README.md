@@ -39,13 +39,10 @@ See:
 go build -o agent-board ./cmd/agent-board
 ```
 
-The Board database lives outside the repository, under the platform data
-directory (`~/Library/Application Support/agent-board` on macOS,
-`$XDG_DATA_HOME/agent-board` or `~/.local/share/agent-board` on Linux,
-`%LOCALAPPDATA%\agent-board` on Windows), at
-`projects/<project_id>/board.db`. The committed `.agent-board.json` carries
-the project ID, so every worktree and process of the repository opens the same
-database. Run `agent-board init` once for a new repository and commit the
+The Board database lives outside the repository, at
+`~/.agent-board/<project_id>/board.db` on every platform. The committed
+`.agent-board.json` carries the project ID, so every worktree and process of
+the repository opens the same database. Run `agent-board init` once for a new repository and commit the
 identity file; `agent-board check` shows what a directory resolves to.
 
 ### MCP

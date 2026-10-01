@@ -62,8 +62,7 @@ func newProject(t *testing.T) *project {
 }
 
 func (p *project) environ() []string {
-	return append(os.Environ(), "HOME="+p.home, "XDG_DATA_HOME="+filepath.Join(p.home, "xdg"),
-		"LOCALAPPDATA="+p.home, "AGENT_BOARD_ACTOR=e2e")
+	return append(os.Environ(), "HOME="+p.home, "USERPROFILE="+p.home, "AGENT_BOARD_ACTOR=e2e")
 }
 
 func (p *project) command(dir string, args ...string) *exec.Cmd {

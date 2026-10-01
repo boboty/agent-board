@@ -4,8 +4,8 @@
 //
 // Derived from rhizome-mcp (https://github.com/Odrin/rhizome-mcp), via
 // boboty/agent-board-rhizome-poc, licensed under Apache-2.0. See NOTICE.
-// Modified: renamed identity file and data directory; removed rollback,
-// root-only loading, and diagnostic helpers.
+// Modified: renamed identity file; data lives under ~/.agent-board on every
+// platform; removed rollback, root-only loading, and diagnostic helpers.
 package projectconfig
 
 import (
@@ -15,7 +15,6 @@ import (
 	"io"
 	"io/fs"
 	"os"
-	"path"
 	"path/filepath"
 	"strings"
 
@@ -30,6 +29,9 @@ const (
 	CurrentIdentityVersion = 1
 	// DatabaseFileName is the Board database file inside a project data directory.
 	DatabaseFileName = "board.db"
+	// DataRootName is the directory below the user's home that holds every
+	// project's Board data, on every platform.
+	DataRootName = ".agent-board"
 
 	// CodeProjectNotFound means no identity file exists at or above the start path.
 	CodeProjectNotFound = "PROJECT_NOT_FOUND"
@@ -37,7 +39,7 @@ const (
 	CodeInvalidIdentity = "INVALID_PROJECT_IDENTITY"
 	// CodeProjectAlreadyInitialized means the repository already has an identity entry.
 	CodeProjectAlreadyInitialized = "PROJECT_ALREADY_INITIALIZED"
-	// CodePathResolution means required application-path input is absent or invalid.
+	// CodePathResolution means the data location cannot be resolved.
 	CodePathResolution = "APP_DATA_PATH_ERROR"
 	// CodeInitializationFailed means project initialization could not be completed.
 	CodeInitializationFailed = "PROJECT_INITIALIZATION_FAILED"
@@ -58,15 +60,6 @@ type Project struct {
 	Identity     Identity
 	DataDir      string
 	DatabasePath string
-}
-
-// PathInputs contains the platform-dependent values needed to resolve an
-// application-data root. Callers populate it from their environment.
-type PathInputs struct {
-	GOOS         string
-	HomeDir      string
-	XDGDataHome  string
-	LocalAppData string
 }
 
 // IDGenerator is the project-ID generator used by Initialize.
@@ -106,34 +99,16 @@ func Discover(start string) (Project, error) {
 	}
 }
 
-// ResolveDataRoot computes the platform application-data directory solely from
-// supplied values. It does not read environment variables or the current user.
-func ResolveDataRoot(input PathInputs) (string, error) {
-	switch input.GOOS {
-	case "darwin":
-		if input.HomeDir == "" {
-			return "", pathError("home directory is required on macOS")
-		}
-		return path.Join(input.HomeDir, "Library", "Application Support", "agent-board"), nil
-	case "linux":
-		if input.XDGDataHome != "" {
-			return path.Join(input.XDGDataHome, "agent-board"), nil
-		}
-		if input.HomeDir == "" {
-			return "", pathError("home directory is required when XDG_DATA_HOME is unset")
-		}
-		return path.Join(input.HomeDir, ".local", "share", "agent-board"), nil
-	case "windows":
-		if input.LocalAppData == "" {
-			return "", pathError("LOCALAPPDATA is required on Windows")
-		}
-		return joinWindows(input.LocalAppData, "agent-board"), nil
-	default:
-		return "", pathError("unsupported operating system " + input.GOOS)
+// ResolveDataRoot returns the Board data root, ~/.agent-board, from the
+// supplied home directory. It does not read the environment or current user.
+func ResolveDataRoot(homeDir string) (string, error) {
+	if homeDir == "" {
+		return "", pathError("home directory is required")
 	}
+	return filepath.Join(homeDir, DataRootName), nil
 }
 
-// ProjectDatabasePath returns the Board database path below dataRoot after
+// ProjectDatabasePath returns <dataRoot>/<project_id>/board.db after
 // validating that projectID is canonical.
 func ProjectDatabasePath(dataRoot, projectID string) (string, error) {
 	canonical, err := canonicalProjectID(projectID)
@@ -141,12 +116,9 @@ func ProjectDatabasePath(dataRoot, projectID string) (string, error) {
 		return "", invalidIdentity(err)
 	}
 	if dataRoot == "" {
-		return "", pathError("application data root is required")
+		return "", pathError("data root is required")
 	}
-	if strings.Contains(dataRoot, `\`) {
-		return joinWindows(dataRoot, "projects", canonical, DatabaseFileName), nil
-	}
-	return path.Join(dataRoot, "projects", canonical, DatabaseFileName), nil
+	return filepath.Join(dataRoot, canonical, DatabaseFileName), nil
 }
 
 // Initialize creates a new repository identity and project data directory.
@@ -162,7 +134,7 @@ func Initialize(repositoryRoot string, generator IDGenerator, dataRoot string) (
 		return Project{}, domain.NewError(CodeInitializationFailed, "project ID generator is required", false)
 	}
 	if dataRoot == "" {
-		return Project{}, pathError("application data root is required")
+		return Project{}, pathError("data root is required")
 	}
 	identityPath := filepath.Join(root, IdentityFileName)
 	if _, err := os.Lstat(identityPath); err == nil {
@@ -171,7 +143,7 @@ func Initialize(repositoryRoot string, generator IDGenerator, dataRoot string) (
 		return Project{}, domain.WrapError(err, CodeInitializationFailed, "cannot inspect identity destination", false)
 	}
 	if err := validateNewDataRootLocation(root, dataRoot); err != nil {
-		return Project{}, domain.WrapError(err, domain.CodeStorageConfiguration, "application data root must be outside the repository", false)
+		return Project{}, domain.WrapError(err, domain.CodeStorageConfiguration, "data root must be outside the repository", false)
 	}
 
 	generated, err := generator.New()
@@ -183,7 +155,7 @@ func Initialize(repositoryRoot string, generator IDGenerator, dataRoot string) (
 		return Project{}, domain.WrapError(err, CodeInitializationFailed, "generated project ID is invalid", false)
 	}
 	identity := Identity{Version: CurrentIdentityVersion, ProjectID: projectID}
-	dataDir := filepath.Join(dataRoot, "projects", projectID)
+	dataDir := filepath.Join(dataRoot, projectID)
 
 	createdDirs, err := createDirectories(dataDir)
 	if err != nil {
@@ -219,7 +191,7 @@ func validateNewDataRootLocation(repositoryRoot, dataRoot string) error {
 		info, err := os.Stat(cursor)
 		if err == nil {
 			if !info.IsDir() {
-				return errors.New("application data root is not a directory")
+				return errors.New("data root is not a directory")
 			}
 			break
 		}
@@ -228,7 +200,7 @@ func validateNewDataRootLocation(repositoryRoot, dataRoot string) error {
 		}
 		parent := filepath.Dir(cursor)
 		if parent == cursor {
-			return errors.New("application data root has no existing ancestor")
+			return errors.New("data root has no existing ancestor")
 		}
 		missing = append(missing, filepath.Base(cursor))
 		cursor = parent
@@ -245,7 +217,7 @@ func validateNewDataRootLocation(repositoryRoot, dataRoot string) error {
 		return err
 	}
 	if relative == "." || (relative != ".." && !filepath.IsAbs(relative) && !strings.HasPrefix(relative, ".."+string(filepath.Separator))) {
-		return errors.New("application data root is inside the repository")
+		return errors.New("data root is inside the repository")
 	}
 	return nil
 }
@@ -416,14 +388,6 @@ func cleanupDirectories(created []string) {
 	for i := len(created) - 1; i >= 0; i-- {
 		_ = os.Remove(created[i])
 	}
-}
-
-func joinWindows(base string, elements ...string) string {
-	result := strings.TrimRight(strings.ReplaceAll(base, "/", `\`), `\`)
-	for _, element := range elements {
-		result += `\` + strings.Trim(element, `\/`)
-	}
-	return result
 }
 
 func invalidIdentity(cause error) error {

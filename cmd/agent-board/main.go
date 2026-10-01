@@ -22,7 +22,7 @@ func main() {
 	}
 	code := cli.Run(ctx, os.Args[1:], cli.Env{
 		Dir:     dir,
-		Paths:   workspace.PathInputsFromEnv(),
+		Home:    workspace.HomeDir(),
 		Actor:   os.Getenv("AGENT_BOARD_ACTOR"),
 		Version: version,
 		Stdin:   os.Stdin,

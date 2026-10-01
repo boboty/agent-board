@@ -101,11 +101,11 @@ func startBoard(t *testing.T) *board {
 		}
 	}
 	for _, kv := range os.Environ() {
-		if !strings.HasPrefix(kv, "HOME=") && !strings.HasPrefix(kv, "XDG_DATA_HOME=") && !strings.HasPrefix(kv, "AGENT_BOARD_ACTOR=") {
+		if !strings.HasPrefix(kv, "HOME=") && !strings.HasPrefix(kv, "USERPROFILE=") && !strings.HasPrefix(kv, "AGENT_BOARD_ACTOR=") {
 			b.env = append(b.env, kv)
 		}
 	}
-	b.env = append(b.env, "HOME="+home, "XDG_DATA_HOME="+filepath.Join(home, "xdg"))
+	b.env = append(b.env, "HOME="+home, "USERPROFILE="+home)
 	b.cli("init")
 
 	ctx, cancel := context.WithCancel(context.Background())

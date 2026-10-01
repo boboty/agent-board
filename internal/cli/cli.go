@@ -31,8 +31,8 @@ import (
 type Env struct {
 	// Dir is the default project discovery start (the working directory).
 	Dir string
-	// Paths selects the application-data root.
-	Paths projectconfig.PathInputs
+	// Home is the user's home directory; the Board data root is Home/.agent-board.
+	Home string
 	// Actor is the default actor label (AGENT_BOARD_ACTOR).
 	Actor   string
 	Version string
@@ -263,7 +263,7 @@ func (c *command) write() ops.Write {
 
 // open locates the project from --dir and opens its Board.
 func (c *command) open(ctx context.Context) (*ops.Service, projectconfig.Project, func(), error) {
-	project, err := workspace.Locate(c.dir, c.env.Paths)
+	project, err := workspace.Locate(c.dir, c.env.Home)
 	if err != nil {
 		return nil, projectconfig.Project{}, nil, err
 	}
@@ -304,7 +304,7 @@ func runInit(ctx context.Context, args []string, env Env) error {
 	if _, err := c.parse(args, 0, 0); err != nil {
 		return err
 	}
-	project, err := workspace.Init(ctx, c.dir, env.Paths)
+	project, err := workspace.Init(ctx, c.dir, env.Home)
 	if err != nil {
 		return err
 	}
@@ -320,7 +320,7 @@ func runCheck(ctx context.Context, args []string, env Env) error {
 	if _, err := c.parse(args, 0, 0); err != nil {
 		return err
 	}
-	project, err := workspace.Locate(c.dir, env.Paths)
+	project, err := workspace.Locate(c.dir, env.Home)
 	if err != nil {
 		return err
 	}

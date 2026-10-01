@@ -83,22 +83,25 @@ func TestDiscoverRejectsInvalidIdentity(t *testing.T) {
 }
 
 func TestResolveDataRoot(t *testing.T) {
-	cases := []struct {
-		in   projectconfig.PathInputs
-		want string
-	}{
-		{projectconfig.PathInputs{GOOS: "darwin", HomeDir: "/Users/u"}, "/Users/u/Library/Application Support/agent-board"},
-		{projectconfig.PathInputs{GOOS: "linux", HomeDir: "/home/u"}, "/home/u/.local/share/agent-board"},
-		{projectconfig.PathInputs{GOOS: "linux", XDGDataHome: "/xdg"}, "/xdg/agent-board"},
-		{projectconfig.PathInputs{GOOS: "windows", LocalAppData: `C:\Users\u\AppData\Local`}, `C:\Users\u\AppData\Local\agent-board`},
+	home := filepath.Join(string(filepath.Separator), "home", "u")
+	got, err := projectconfig.ResolveDataRoot(home)
+	if want := filepath.Join(home, ".agent-board"); err != nil || got != want {
+		t.Errorf("ResolveDataRoot(%q) = %q, %v; want %q", home, got, err, want)
 	}
-	for _, c := range cases {
-		if got, err := projectconfig.ResolveDataRoot(c.in); err != nil || got != c.want {
-			t.Errorf("ResolveDataRoot(%+v) = %q, %v; want %q", c.in, got, err, c.want)
-		}
+	if _, err := projectconfig.ResolveDataRoot(""); !domain.IsCode(err, projectconfig.CodePathResolution) {
+		t.Errorf("empty home: error = %v", err)
 	}
-	if _, err := projectconfig.ResolveDataRoot(projectconfig.PathInputs{GOOS: "plan9"}); err == nil {
-		t.Error("unsupported OS accepted")
+}
+
+func TestProjectDatabasePath(t *testing.T) {
+	root := filepath.Join(string(filepath.Separator), "home", "u", ".agent-board")
+	const id = "01M3VN4DT676SGJ90T58JRB13R"
+	got, err := projectconfig.ProjectDatabasePath(root, id)
+	if want := filepath.Join(root, id, "board.db"); err != nil || got != want {
+		t.Errorf("ProjectDatabasePath() = %q, %v; want %q", got, err, want)
+	}
+	if _, err := projectconfig.ProjectDatabasePath(root, "nope"); !domain.IsCode(err, projectconfig.CodeInvalidIdentity) {
+		t.Errorf("bad id: error = %v", err)
 	}
 }
 

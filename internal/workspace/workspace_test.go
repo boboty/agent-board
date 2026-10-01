@@ -5,7 +5,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"testing"
 
 	"github.com/boboty/agent-board/internal/board"
@@ -13,10 +12,9 @@ import (
 	"github.com/boboty/agent-board/internal/projectconfig"
 )
 
-func testInputs(t *testing.T) projectconfig.PathInputs {
+func testHome(t *testing.T) string {
 	t.Helper()
-	home := realDir(t, t.TempDir())
-	return projectconfig.PathInputs{GOOS: runtime.GOOS, HomeDir: home, XDGDataHome: filepath.Join(home, "xdg"), LocalAppData: home}
+	return realDir(t, t.TempDir())
 }
 
 func realDir(t *testing.T, dir string) string {
@@ -39,10 +37,10 @@ func git(t *testing.T, dir string, args ...string) {
 
 func TestInitThenLocateFromNestedDirectory(t *testing.T) {
 	ctx := context.Background()
-	inputs := testInputs(t)
+	home := testHome(t)
 	repo := realDir(t, t.TempDir())
 
-	created, err := Init(ctx, repo, inputs)
+	created, err := Init(ctx, repo, home)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -50,7 +48,7 @@ func TestInitThenLocateFromNestedDirectory(t *testing.T) {
 	if err := os.MkdirAll(nested, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	located, err := Locate(nested, inputs)
+	located, err := Locate(nested, home)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -59,6 +57,9 @@ func TestInitThenLocateFromNestedDirectory(t *testing.T) {
 	}
 	if located.DatabasePath != created.DatabasePath || located.DataDir != created.DataDir {
 		t.Fatalf("located database %s, created %s", located.DatabasePath, created.DatabasePath)
+	}
+	if want := filepath.Join(home, ".agent-board", created.Identity.ProjectID, "board.db"); located.DatabasePath != want {
+		t.Fatalf("database %s, want %s", located.DatabasePath, want)
 	}
 	if rel, err := filepath.Rel(repo, located.DatabasePath); err == nil && filepath.IsLocal(rel) {
 		t.Fatalf("database %s is inside the repository", located.DatabasePath)
@@ -72,13 +73,13 @@ func TestInitThenLocateFromNestedDirectory(t *testing.T) {
 		t.Fatalf("status %+v", status)
 	}
 
-	if _, err := Init(ctx, repo, inputs); !domain.IsCode(err, projectconfig.CodeProjectAlreadyInitialized) {
+	if _, err := Init(ctx, repo, home); !domain.IsCode(err, projectconfig.CodeProjectAlreadyInitialized) {
 		t.Fatalf("second init: %v", err)
 	}
 }
 
 func TestLocateWithoutIdentity(t *testing.T) {
-	_, err := Locate(t.TempDir(), testInputs(t))
+	_, err := Locate(t.TempDir(), testHome(t))
 	if !domain.IsCode(err, projectconfig.CodeProjectNotFound) {
 		t.Fatalf("got %v", err)
 	}
@@ -88,13 +89,13 @@ func TestLocateWithoutIdentity(t *testing.T) {
 // directory. Check reports that without creating anything; Open creates it.
 func TestFreshCloneCreatesDatabaseOnOpen(t *testing.T) {
 	ctx := context.Background()
-	inputs := testInputs(t)
+	home := testHome(t)
 	clone := t.TempDir()
 	identity := `{"version": 1, "project_id": "01M3VN4DT676SGJ90T58JRB13R"}`
 	if err := os.WriteFile(filepath.Join(clone, projectconfig.IdentityFileName), []byte(identity), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	project, err := Locate(clone, inputs)
+	project, err := Locate(clone, home)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -126,7 +127,7 @@ func TestWorktreesShareOneBoard(t *testing.T) {
 		t.Skip("git not available")
 	}
 	ctx := context.Background()
-	inputs := testInputs(t)
+	home := testHome(t)
 	base := realDir(t, t.TempDir())
 	repo := filepath.Join(base, "repo")
 	worktree := filepath.Join(base, "worktree")
@@ -134,18 +135,18 @@ func TestWorktreesShareOneBoard(t *testing.T) {
 		t.Fatal(err)
 	}
 	git(t, repo, "init", "-q")
-	if _, err := Init(ctx, repo, inputs); err != nil {
+	if _, err := Init(ctx, repo, home); err != nil {
 		t.Fatal(err)
 	}
 	git(t, repo, "add", projectconfig.IdentityFileName)
 	git(t, repo, "commit", "-q", "-m", "identity")
 	git(t, repo, "worktree", "add", "-q", worktree)
 
-	main, err := Locate(repo, inputs)
+	main, err := Locate(repo, home)
 	if err != nil {
 		t.Fatal(err)
 	}
-	other, err := Locate(worktree, inputs)
+	other, err := Locate(worktree, home)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -10,7 +10,6 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
-	"runtime"
 
 	"github.com/boboty/agent-board/internal/board"
 	"github.com/boboty/agent-board/internal/clock"
@@ -20,26 +19,21 @@ import (
 	"github.com/boboty/agent-board/migrations"
 )
 
-// PathInputsFromEnv reads the process environment values that select the
-// application-data root.
-func PathInputsFromEnv() projectconfig.PathInputs {
+// HomeDir returns the current user's home directory, below which the Board
+// keeps its data. It is empty when the home directory cannot be determined.
+func HomeDir() string {
 	home, _ := os.UserHomeDir()
-	return projectconfig.PathInputs{
-		GOOS:         runtime.GOOS,
-		HomeDir:      home,
-		XDGDataHome:  os.Getenv("XDG_DATA_HOME"),
-		LocalAppData: os.Getenv("LOCALAPPDATA"),
-	}
+	return home
 }
 
 // Locate discovers the project identity at or above start and resolves its
-// external data directory and database path. It touches nothing on disk.
-func Locate(start string, inputs projectconfig.PathInputs) (projectconfig.Project, error) {
+// data directory and database path. It touches nothing on disk.
+func Locate(start string, home string) (projectconfig.Project, error) {
 	project, err := projectconfig.Discover(start)
 	if err != nil {
 		return projectconfig.Project{}, err
 	}
-	dataRoot, err := projectconfig.ResolveDataRoot(inputs)
+	dataRoot, err := projectconfig.ResolveDataRoot(home)
 	if err != nil {
 		return projectconfig.Project{}, err
 	}
@@ -47,7 +41,7 @@ func Locate(start string, inputs projectconfig.PathInputs) (projectconfig.Projec
 	if err != nil {
 		return projectconfig.Project{}, err
 	}
-	project.DatabasePath = filepath.FromSlash(databasePath)
+	project.DatabasePath = databasePath
 	project.DataDir = filepath.Dir(project.DatabasePath)
 	return project, nil
 }
@@ -62,8 +56,8 @@ func Open(ctx context.Context, project projectconfig.Project) (*board.Service, e
 }
 
 // Init creates a new project identity in dir and its Board database.
-func Init(ctx context.Context, dir string, inputs projectconfig.PathInputs) (projectconfig.Project, error) {
-	dataRoot, err := projectconfig.ResolveDataRoot(inputs)
+func Init(ctx context.Context, dir string, home string) (projectconfig.Project, error) {
+	dataRoot, err := projectconfig.ResolveDataRoot(home)
 	if err != nil {
 		return projectconfig.Project{}, err
 	}
@@ -71,7 +65,7 @@ func Init(ctx context.Context, dir string, inputs projectconfig.PathInputs) (pro
 	if err != nil {
 		return projectconfig.Project{}, err
 	}
-	project, err := projectconfig.Initialize(dir, generator, filepath.FromSlash(dataRoot))
+	project, err := projectconfig.Initialize(dir, generator, dataRoot)
 	if err != nil {
 		return projectconfig.Project{}, err
 	}
