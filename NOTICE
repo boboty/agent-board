@@ -3,8 +3,25 @@ Copyright 2026 Agent Board contributors
 
 This repository is a clean implementation of Agent Board.
 
-Some infrastructure code may later be selectively derived from third-party
-Apache-2.0 projects, including the earlier rhizome-based proof of concept.
-When such code is introduced, the relevant source attribution, copyright
-notices, and license requirements must be preserved with the derived files
-and/or this NOTICE as required.
+Third-party code
+----------------
+
+Selected infrastructure code is derived from rhizome-mcp
+(https://github.com/Odrin/rhizome-mcp), Copyright rhizome-mcp contributors,
+licensed under the Apache License, Version 2.0, obtained via the proof of
+concept boboty/agent-board-rhizome-poc (commit bc7f88d). Derived files carry a
+header naming their origin and have been modified:
+
+  internal/clock/clock.go          injectable UTC clock
+  internal/ids/ids.go              ULID generation and strict parsing
+  internal/domain/errors.go        structured error type (codes are Agent Board's own)
+  internal/sqlite/sqlite.go        SQLite open, WAL and PRAGMA configuration
+  internal/sqlite/transaction.go   BEGIN IMMEDIATE writes, BUSY retry, snapshot reads
+  internal/sqlite/errors.go        SQLite error translation
+  internal/sqlite/timestamps.go    fixed-width UTC timestamp storage format
+  migrations/migrations.go         checksummed migration runner
+  internal/projectconfig/projectconfig.go
+                                   project identity file and external data path
+
+Only infrastructure was derived. No workflow, issue state machine, attempt,
+lease, review, or gate semantics were taken from rhizome-mcp.
