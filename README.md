@@ -80,6 +80,18 @@ storage error) or 2 (usage error). `agent-board call <operation> '<json>'`
 invokes any operation through the same dispatch as MCP `tools/call`. The
 default actor is `$AGENT_BOARD_ACTOR`, overridden by `--actor`.
 
+`agent-board doctor` prints human-readable status for the binary/version,
+Workflow Skill, project identity, Board database file, and MCP operation
+catalog. Exit status 0 means no problem was detected by these checks, 1 means
+a component needs attention, and 2 means invalid usage. It is read-only: it
+does not install the Skill, initialize projects, open SQLite, or run
+migrations. For a regular DB file, doctor reads its 16-byte SQLite header.
+Invalid headers are reported as
+`Board PROBLEM`; a valid header is reported as `Board PRESENT`, not `OK`, since
+doctor does not verify the schema or project binding. Exit 0 does not guarantee
+that an un-opened Board database is fully usable. A normal Board command may
+open the database and run migrations when full validation is needed.
+
 ### Workflow Skill
 
 `workflow/SKILL.md` is the canonical Skill source and is embedded in the

@@ -162,6 +162,87 @@ func TestSkillCommands(t *testing.T) {
 	h.fails(ExitUsage, CodeUsage, "skill", "show", "extra")
 }
 
+func TestDoctorReportsHealthyAndMissingComponentsWithoutWriting(t *testing.T) {
+	h := newHarness(t)
+	h.ok("skill", "install")
+	output := h.ok("doctor")
+	for _, want := range []string{"Binary   OK", "Skill    OK", "Project  OK", "Board    PRESENT", "SQLite 文件头有效；未验证 schema 或 project binding", "MCP      OK", "operations and schemas loaded"} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("doctor output %q does not contain %q", output, want)
+		}
+	}
+
+	database := filepath.Join(h.env.Home, ".agent-board", decodeJSON[workspace.Status](t, h.ok("check")).ProjectID, "board.db")
+	before, err := os.Stat(database)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if code, out, stderr := h.run("", "doctor"); code != ExitOK || stderr != "" || out != output {
+		t.Fatalf("repeat doctor exit %d stderr %q output differs", code, stderr)
+	}
+	after, err := os.Stat(database)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !before.ModTime().Equal(after.ModTime()) || before.Size() != after.Size() {
+		t.Fatalf("doctor changed database metadata: before %v/%d after %v/%d", before.ModTime(), before.Size(), after.ModTime(), after.Size())
+	}
+	codexSkill := filepath.Join(h.env.Home, ".codex", "skills", "agent-board-workflow", "SKILL.md")
+	if err := os.WriteFile(codexSkill, []byte("stale"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	code, out, stderr := h.run("", "doctor")
+	if code != ExitError || stderr != "" || !strings.Contains(out, "Skill    PROBLEM") || !strings.Contains(out, "codex=different") || !strings.Contains(out, "Next step:") {
+		t.Fatalf("different Skill doctor exit %d stdout %q stderr %q", code, out, stderr)
+	}
+	if err := os.WriteFile(codexSkill, []byte(workflow.Skill), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	garbage := []byte("GARBAGE NOT A SQLITE FILE")
+	if err := os.WriteFile(database, garbage, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	code, out, stderr = h.run("", "doctor")
+	if code != ExitError || stderr != "" || !strings.Contains(out, "Board    PROBLEM") || !strings.Contains(out, "不是有效的 SQLite 文件头") || !strings.Contains(out, "Next step:") {
+		t.Fatalf("garbage database doctor exit %d stdout %q stderr %q", code, out, stderr)
+	}
+	afterGarbage, err := os.ReadFile(database)
+	if err != nil || !bytes.Equal(afterGarbage, garbage) {
+		t.Fatalf("doctor changed garbage database: %v", err)
+	}
+
+	if err := os.Remove(database); err != nil {
+		t.Fatal(err)
+	}
+	code, out, stderr = h.run("", "doctor")
+	if code != ExitError || stderr != "" || !strings.Contains(out, "Board    MISSING") || !strings.Contains(out, "Next step:") {
+		t.Fatalf("missing database doctor exit %d stdout %q stderr %q", code, out, stderr)
+	}
+	if _, err := os.Stat(database); !os.IsNotExist(err) {
+		t.Fatalf("doctor created missing database: %v", err)
+	}
+}
+
+func TestDoctorOutsideProjectAndWithMissingSkill(t *testing.T) {
+	home, dir := t.TempDir(), t.TempDir()
+	h := &harness{t: t, repo: dir, env: Env{Dir: dir, Home: home, Version: "test"}}
+	code, output, stderr := h.run("", "doctor")
+	if code != ExitError || stderr != "" {
+		t.Fatalf("doctor exit %d stdout %q stderr %q", code, output, stderr)
+	}
+	for _, want := range []string{"Binary   OK", "Skill    MISSING", "Project  MISSING", "Board    MISSING", "MCP      OK", "agent-board init", "agent-board skill install"} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("doctor output %q does not contain %q", output, want)
+		}
+	}
+	for _, path := range []string{filepath.Join(home, ".agent-board"), filepath.Join(home, ".claude"), filepath.Join(home, ".codex"), filepath.Join(home, ".agents")} {
+		if _, err := os.Stat(path); !os.IsNotExist(err) {
+			t.Fatalf("doctor created %s: %v", path, err)
+		}
+	}
+	h.fails(ExitUsage, CodeUsage, "doctor", "unexpected")
+}
+
 func TestMCPConfigCommands(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "agent board binary")
 	h := &harness{t: t, env: Env{
