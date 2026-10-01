@@ -1,6 +1,6 @@
 # Binaries
 /bin/
-agent-board
+/agent-board
 
 # Go
 *.test

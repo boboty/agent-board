@@ -43,6 +43,9 @@ const (
 	FactNote         FactKind = "note"
 )
 
+// FactKinds lists every valid FactKind.
+var FactKinds = []FactKind{FactExecution, FactDelivery, FactVerification, FactHandoff, FactNote}
+
 // Valid reports whether k is a known fact kind.
 func (k FactKind) Valid() bool {
 	switch k {
