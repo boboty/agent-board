@@ -19,6 +19,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"unicode"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -84,6 +85,15 @@ func (h *harness) fails(exit int, code string, args ...string) domain.Error {
 		h.t.Fatalf("%v: error %+v, want %s", args, envelope.Error, code)
 	}
 	return envelope.Error
+}
+
+func assertDoctorEnglish(t *testing.T, output string) {
+	t.Helper()
+	for _, r := range output {
+		if unicode.Is(unicode.Han, r) || strings.ContainsRune("，。；：（）", r) {
+			t.Fatalf("doctor output contains non-English program text %q: %q", r, output)
+		}
+	}
 }
 
 func decodeJSON[T any](t *testing.T, text string) T {
@@ -272,7 +282,8 @@ func TestSkillInstallAndCheckPreserveUnmanagedSkillFiles(t *testing.T) {
 		t.Fatalf("check did not report unmanaged legacy path: %s", check)
 	}
 	code, doctor, stderr := h.run("", "doctor")
-	if code != ExitError || stderr != "" || !strings.Contains(doctor, legacy) || !strings.Contains(doctor, "手动移走或合并") {
+	assertDoctorEnglish(t, doctor)
+	if code != ExitError || stderr != "" || !strings.Contains(doctor, legacy) || !strings.Contains(doctor, "move or merge it manually") {
 		t.Fatalf("doctor did not report unmanaged legacy path and next step: %d %q %q", code, doctor, stderr)
 	}
 }
@@ -281,12 +292,13 @@ func TestDoctorReportsHealthyAndMissingComponentsWithoutWriting(t *testing.T) {
 	h := newHarness(t)
 	h.ok("skill", "install")
 	output := h.ok("doctor")
-	for _, want := range []string{"Binary   OK", "Skills   OK", "Management Skill — 指导 Task 定义和 READY 优先级（使用 CLI，MCP 可选）", "Workflow Skill — 指导 Task 执行、交付和验证", "Project  OK", "Board    PRESENT", "数据库文件存在，SQLite 格式可识别", "MCP      OK", "个操作及输入定义已加载（未启动 MCP 服务）"} {
+	assertDoctorEnglish(t, output)
+	for _, want := range []string{"Binary   OK", "Skills   OK", "Management Skill — guides Task definition and READY prioritization (CLI; MCP optional)", "Workflow Skill — guides Task execution, delivery, and verification", "Project  OK", "Board    PRESENT", "database file exists and has a recognizable SQLite format", "MCP      OK", "operation definitions and input schemas loaded (MCP service not started)"} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("doctor output %q does not contain %q", output, want)
 		}
 	}
-	for _, unwanted := range []string{"schema", "project binding", "备份", "迁移", "SQLite 文件头"} {
+	for _, unwanted := range []string{"input schema is unavailable", "project binding", "backup", "migration", "SQLite file header"} {
 		if strings.Contains(output, unwanted) {
 			t.Fatalf("normal doctor output exposes internal warning %q: %q", unwanted, output)
 		}
@@ -306,7 +318,8 @@ func TestDoctorReportsHealthyAndMissingComponentsWithoutWriting(t *testing.T) {
 		t.Fatal(err)
 	}
 	code, out, stderr := h.run("", "doctor")
-	if code != ExitError || stderr != "" || !strings.Contains(out, "Skills   MISSING") || !strings.Contains(out, "Workflow Skill — 指导 Task 执行、交付和验证; 1/3 Harness") || !strings.Contains(out, "claude-code=missing") || !strings.Contains(out, "opencode=missing") || !strings.Contains(out, "Next step:") {
+	assertDoctorEnglish(t, out)
+	if code != ExitError || stderr != "" || !strings.Contains(out, "Skills   MISSING") || !strings.Contains(out, "Workflow Skill — guides Task execution, delivery, and verification; 1 of 3 harnesses are current") || !strings.Contains(out, "claude-code=missing") || !strings.Contains(out, "opencode=missing") || !strings.Contains(out, "2 harnesses are missing") || !strings.Contains(out, "Next step:") {
 		t.Fatalf("missing Skill doctor exit %d stdout %q stderr %q", code, out, stderr)
 	}
 	h.ok("skill", "install")
@@ -315,12 +328,22 @@ func TestDoctorReportsHealthyAndMissingComponentsWithoutWriting(t *testing.T) {
 	}
 	before = snapshotTree(t, h.env.Home, h.repo)
 	code, out, stderr = h.run("", "doctor")
-	if code != ExitError || stderr != "" || !strings.Contains(out, "Skills   PROBLEM") || !strings.Contains(out, "codex=different") || !strings.Contains(out, "Next step:") {
+	assertDoctorEnglish(t, out)
+	if code != ExitError || stderr != "" || !strings.Contains(out, "Skills   PROBLEM") || !strings.Contains(out, "codex=different") || !strings.Contains(out, "1 installed copy has different content") || strings.Contains(out, "missing") || !strings.Contains(out, "Review differing installed content manually") || !strings.Contains(out, "Next step:") {
 		t.Fatalf("different Skill doctor exit %d stdout %q stderr %q", code, out, stderr)
 	}
 	if after := snapshotTree(t, h.env.Home, h.repo); !reflect.DeepEqual(before, after) {
 		t.Fatalf("doctor changed files while reporting Skill mismatch: before %v after %v", before, after)
 	}
+	if err := os.Remove(claudeSkill); err != nil {
+		t.Fatal(err)
+	}
+	code, out, stderr = h.run("", "doctor")
+	assertDoctorEnglish(t, out)
+	if code != ExitError || stderr != "" || !strings.Contains(out, "Skills   PROBLEM") || !strings.Contains(out, "0 of 3 harnesses are current") || !strings.Contains(out, "1 installed copy has different content") || !strings.Contains(out, "2 harnesses are missing") || !strings.Contains(out, "codex=different") || !strings.Contains(out, "claude-code=missing") || !strings.Contains(out, "opencode=missing") {
+		t.Fatalf("mixed Skill doctor exit %d stdout %q stderr %q", code, out, stderr)
+	}
+	h.ok("skill", "install")
 	if err := os.WriteFile(codexSkill, []byte(workflow.Skill), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -330,7 +353,8 @@ func TestDoctorReportsHealthyAndMissingComponentsWithoutWriting(t *testing.T) {
 	}
 	before = snapshotTree(t, h.env.Home, h.repo)
 	code, out, stderr = h.run("", "doctor")
-	if code != ExitError || stderr != "" || !strings.Contains(out, "Board    PROBLEM") || !strings.Contains(out, "不是有效的 SQLite 文件头") || !strings.Contains(out, "Next step:") {
+	assertDoctorEnglish(t, out)
+	if code != ExitError || stderr != "" || !strings.Contains(out, "Board    PROBLEM") || !strings.Contains(out, "does not have a valid SQLite file header") || !strings.Contains(out, "Next step:") {
 		t.Fatalf("garbage database doctor exit %d stdout %q stderr %q", code, out, stderr)
 	}
 	if after := snapshotTree(t, h.env.Home, h.repo); !reflect.DeepEqual(before, after) {
@@ -342,6 +366,7 @@ func TestDoctorReportsHealthyAndMissingComponentsWithoutWriting(t *testing.T) {
 	}
 	before = snapshotTree(t, h.env.Home, h.repo)
 	code, out, stderr = h.run("", "doctor")
+	assertDoctorEnglish(t, out)
 	if code != ExitError || stderr != "" || !strings.Contains(out, "Board    MISSING") || !strings.Contains(out, "Next step:") {
 		t.Fatalf("missing database doctor exit %d stdout %q stderr %q", code, out, stderr)
 	}
@@ -362,6 +387,7 @@ func TestDoctorOutsideProjectAndWithMissingSkill(t *testing.T) {
 			t.Fatalf("doctor output %q does not contain %q", output, want)
 		}
 	}
+	assertDoctorEnglish(t, output)
 	for _, path := range []string{filepath.Join(home, ".agent-board"), filepath.Join(home, ".claude"), filepath.Join(home, ".codex"), filepath.Join(home, ".agents")} {
 		if _, err := os.Stat(path); !os.IsNotExist(err) {
 			t.Fatalf("doctor created %s: %v", path, err)
@@ -378,7 +404,8 @@ func TestDoctorReportsInvalidProjectConfigurationWithoutWriting(t *testing.T) {
 	}
 	before := snapshotTree(t, h.env.Home, h.repo)
 	code, output, stderr := h.run("", "doctor")
-	if code != ExitError || stderr != "" || !strings.Contains(output, "Project  PROBLEM") || !strings.Contains(output, "Board    PROBLEM") || !strings.Contains(output, "修复 Project 项") || !strings.Contains(output, "Next step:") {
+	assertDoctorEnglish(t, output)
+	if code != ExitError || stderr != "" || !strings.Contains(output, "Project  PROBLEM") || !strings.Contains(output, "Board    PROBLEM") || !strings.Contains(output, "Fix the .agent-board.json issue reported under Project first.") || !strings.Contains(output, "Next step:") {
 		t.Fatalf("invalid project doctor exit %d stdout %q stderr %q", code, output, stderr)
 	}
 	if after := snapshotTree(t, h.env.Home, h.repo); !reflect.DeepEqual(before, after) {

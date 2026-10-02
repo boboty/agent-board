@@ -607,6 +607,13 @@ type doctorLine struct {
 	name, status, detail, next string
 }
 
+func plural(count int, singular, plural string) string {
+	if count == 1 {
+		return singular
+	}
+	return plural
+}
+
 func runDoctor(ctx context.Context, args []string, env Env) error {
 	c := newCommand("doctor", env)
 	if _, err := c.parse(args, 0, 0); err != nil {
@@ -625,7 +632,7 @@ func runDoctor(ctx context.Context, args []string, env Env) error {
 		version = "unknown"
 	}
 	if err != nil {
-		lines = append(lines, doctorLine{"Binary", "PROBLEM", "无法确定可执行文件路径: " + err.Error(), "检查当前 binary 的安装和运行权限。"})
+		lines = append(lines, doctorLine{"Binary", "PROBLEM", "Could not determine the executable path: " + err.Error(), "Check the binary installation and execution permissions."})
 		healthy = false
 	} else {
 		lines = append(lines, doctorLine{"Binary", "OK", fmt.Sprintf("%s (version %s)", executable, version), ""})
@@ -633,6 +640,8 @@ func runDoctor(ctx context.Context, args []string, env Env) error {
 
 	var skillDetails []string
 	skillStatusError := ""
+	skillHasDifferent, skillHasMissing := false, false
+	skillHasManagedLegacy, skillHasUnmanagedLegacy := false, false
 	for _, skill := range skillDefinitions() {
 		skillStatuses, statusErr := checkSkillStatus(env.Home, skill)
 		if statusErr != nil {
@@ -648,56 +657,65 @@ func runDoctor(ctx context.Context, args []string, env Env) error {
 			}
 			if item.Status == "different" {
 				different++
+				skillHasDifferent = true
+			}
+			if item.Status == "missing" {
+				skillHasMissing = true
 			}
 			if item.Harness == "claude-code" || item.Harness == "codex" || item.Harness == "opencode" {
 				states = append(states, item.Harness+"="+item.Status)
 			}
 			if item.Status == "managed-legacy" || item.Status == "unmanaged-legacy" {
 				legacy = item.Status + ": " + item.Path
+				skillHasManagedLegacy = skillHasManagedLegacy || item.Status == "managed-legacy"
+				skillHasUnmanagedLegacy = skillHasUnmanagedLegacy || item.Status == "unmanaged-legacy"
 			}
 		}
 		label := "Workflow"
 		if skill.Name == "management" {
 			label = "Management"
 		}
-		purpose := "指导 Task 执行、交付和验证"
+		purpose := "guides Task execution, delivery, and verification"
 		if skill.Name == "management" {
-			purpose = "指导 Task 定义和 READY 优先级（使用 CLI，MCP 可选）"
+			purpose = "guides Task definition and READY prioritization (CLI; MCP optional)"
 		}
-		state := fmt.Sprintf("%s Skill — %s; %d/3 Harness (%s)", label, purpose, current, strings.Join(states, ", "))
+		missing := len(states) - current - different
+		state := fmt.Sprintf("%s Skill — %s; %d of %d harnesses are current (%s)", label, purpose, current, len(states), strings.Join(states, ", "))
 		if different > 0 {
-			state += fmt.Sprintf("; %d 处内容与 binary 不同", different)
+			state += fmt.Sprintf("; %d installed %s %s different content", different, plural(different, "copy", "copies"), plural(different, "has", "have"))
 		}
-		if current < 3 {
-			state += "; 有 Harness 尚未安装"
+		if missing > 0 {
+			state += fmt.Sprintf("; %d %s missing", missing, plural(missing, "harness is", "harnesses are"))
 		}
 		if legacy != "" {
-			state += "; 旧路径 " + legacy
+			state += "; legacy path " + legacy
 		}
 		skillDetails = append(skillDetails, state)
 	}
 	if skillStatusError != "" {
-		lines = append(lines, doctorLine{"Skills", "PROBLEM", "无法读取 Skill 安装状态: " + skillStatusError, "检查当前用户对 Skill 目录的读取权限。"})
+		lines = append(lines, doctorLine{"Skills", "PROBLEM", "Could not read Skill installation status: " + skillStatusError, "Check read access to the current user's Skill directories."})
 		healthy = false
 	} else {
 		status, next := "OK", ""
-		for _, detail := range skillDetails {
-			if strings.Contains(detail, "内容与 binary 不同") || strings.Contains(detail, "旧路径") {
-				status = "PROBLEM"
-			}
-			if strings.Contains(detail, "有 Harness 尚未安装") && status == "OK" {
-				status = "MISSING"
-			}
+		if skillHasDifferent || skillHasManagedLegacy || skillHasUnmanagedLegacy {
+			status = "PROBLEM"
+		} else if skillHasMissing {
+			status = "MISSING"
 		}
 		if status != "OK" {
 			healthy = false
-			next = "运行 `aboard skill check management` 或 `aboard skill check workflow` 检查对应内容；安装时可用 `aboard skill install management|workflow`。"
-			for _, detail := range skillDetails {
-				if strings.Contains(detail, "旧路径 unmanaged-legacy:") {
-					next += " 检查旧路径是否为用户自定义内容；确认后手动移走或合并，aboard 不会覆盖或删除它。"
-				} else if strings.Contains(detail, "旧路径 managed-legacy:") {
-					next += " Workflow 旧副本与 canonical 内容一致，可运行 `aboard skill install workflow` 移除。"
-				}
+			next = "Run `aboard skill check management` or `aboard skill check workflow` to inspect the corresponding content."
+			if skillHasDifferent {
+				next += " Review differing installed content manually; `aboard skill install` does not overwrite it."
+			}
+			if skillHasMissing {
+				next += " Install missing Skills with `aboard skill install management` or `aboard skill install workflow`."
+			}
+			if skillHasUnmanagedLegacy {
+				next += " Check whether the legacy path contains user-owned content; after review, move or merge it manually. aboard will not overwrite or delete it."
+			}
+			if skillHasManagedLegacy {
+				next += " The legacy Workflow copy matches the canonical content; run `aboard skill install workflow` to remove it."
 			}
 		}
 		lines = append(lines, doctorLine{"Skills", status, strings.Join(skillDetails, "; "), next})
@@ -709,44 +727,44 @@ func runDoctor(ctx context.Context, args []string, env Env) error {
 	case projectErr == nil:
 		lines = append(lines, doctorLine{"Project", "OK", fmt.Sprintf("%s (project_id %s)", project.Root, project.Identity.ProjectID), ""})
 	case domain.IsCode(projectErr, projectconfig.CodeProjectNotFound):
-		lines = append(lines, doctorLine{"Project", "MISSING", "未找到 .agent-board.json（当前目录及其父目录均未初始化）", "在项目根目录运行 `aboard init`。"})
+		lines = append(lines, doctorLine{"Project", "MISSING", "Could not find .agent-board.json in this directory or any parent directory.", "Run `aboard init` from the project root."})
 		healthy = false
 	default:
-		lines = append(lines, doctorLine{"Project", "PROBLEM", projectErr.Error(), "检查 .agent-board.json 内容、文件类型和读取权限。"})
+		lines = append(lines, doctorLine{"Project", "PROBLEM", projectErr.Error(), "Check the contents, file type, and read permissions of .agent-board.json."})
 		healthy = false
 	}
 
 	if projectErr == nil {
 		if locateErr != nil {
-			lines = append(lines, doctorLine{"Board", "PROBLEM", "无法解析数据库路径: " + locateErr.Error(), "检查 HOME 和 Agent Board 数据目录配置。"})
+			lines = append(lines, doctorLine{"Board", "PROBLEM", "Could not resolve the database path: " + locateErr.Error(), "Check HOME and the Agent Board data directory configuration."})
 			healthy = false
 		} else if info, statErr := os.Stat(located.DatabasePath); errors.Is(statErr, os.ErrNotExist) {
-			lines = append(lines, doctorLine{"Board", "MISSING", located.DatabasePath, "数据库尚未创建；运行 `aboard board` 会按正常应用行为初始化它。"})
+			lines = append(lines, doctorLine{"Board", "MISSING", located.DatabasePath, "The database has not been created; running `aboard board` will initialize it as part of normal operation."})
 			healthy = false
 		} else if statErr != nil {
-			lines = append(lines, doctorLine{"Board", "PROBLEM", located.DatabasePath + ": " + statErr.Error(), "检查数据库路径及其父目录的访问权限。"})
+			lines = append(lines, doctorLine{"Board", "PROBLEM", located.DatabasePath + ": " + statErr.Error(), "Check access to the database path and its parent directory."})
 			healthy = false
 		} else if !info.Mode().IsRegular() {
-			lines = append(lines, doctorLine{"Board", "PROBLEM", located.DatabasePath + " 不是普通文件", "检查数据库路径；将它恢复为有效的 board.db 文件。"})
+			lines = append(lines, doctorLine{"Board", "PROBLEM", located.DatabasePath + " is not a regular file", "Check the database path and restore it as a valid board.db file."})
 			healthy = false
 		} else {
 			validHeader, headerErr := hasSQLiteHeader(located.DatabasePath)
 			switch {
 			case headerErr != nil:
-				lines = append(lines, doctorLine{"Board", "PROBLEM", located.DatabasePath + ": " + headerErr.Error(), "检查数据库文件的读取权限；doctor 未打开或修复数据库。"})
+				lines = append(lines, doctorLine{"Board", "PROBLEM", located.DatabasePath + ": " + headerErr.Error(), "Check read access to the database file. doctor does not open or repair the database."})
 				healthy = false
 			case !validHeader:
-				lines = append(lines, doctorLine{"Board", "PROBLEM", located.DatabasePath + " 不是有效的 SQLite 文件头", "检查文件是否被覆盖或损坏，并从可信备份恢复正确的项目数据库。"})
+				lines = append(lines, doctorLine{"Board", "PROBLEM", located.DatabasePath + " does not have a valid SQLite file header", "Check whether the file was replaced or corrupted, and restore the project database from a trusted backup."})
 				healthy = false
 			default:
-				lines = append(lines, doctorLine{"Board", "PRESENT", located.DatabasePath + " (数据库文件存在，SQLite 格式可识别)", ""})
+				lines = append(lines, doctorLine{"Board", "PRESENT", located.DatabasePath + " (database file exists and has a recognizable SQLite format)", ""})
 			}
 		}
 	} else {
 		if domain.IsCode(projectErr, projectconfig.CodeProjectNotFound) {
-			lines = append(lines, doctorLine{"Board", "MISSING", "没有项目 identity，因此无法解析 Board 数据库路径", "先在项目根目录运行 `aboard init`。"})
+			lines = append(lines, doctorLine{"Board", "MISSING", "No project identity is available, so the Board database path cannot be resolved.", "Run `aboard init` from the project root first."})
 		} else {
-			lines = append(lines, doctorLine{"Board", "PROBLEM", "项目 identity 不可用，无法解析 Board 数据库路径", "先修复 Project 项报告的 .agent-board.json 问题。"})
+			lines = append(lines, doctorLine{"Board", "PROBLEM", "The project identity is unavailable, so the Board database path cannot be resolved.", "Fix the .agent-board.json issue reported under Project first."})
 		}
 		healthy = false
 	}
@@ -763,9 +781,9 @@ func runDoctor(ctx context.Context, args []string, env Env) error {
 	// the catalog and does not open a project or database.
 	if loaded {
 		_ = mcpserver.New(nil, mcpserver.Info{Version: env.Version})
-		lines = append(lines, doctorLine{"MCP", "OK", fmt.Sprintf("%d 个操作及输入定义已加载（未启动 MCP 服务）", len(operations)), ""})
+		lines = append(lines, doctorLine{"MCP", "OK", fmt.Sprintf("%d operation definitions and input schemas loaded (MCP service not started)", len(operations)), ""})
 	} else {
-		lines = append(lines, doctorLine{"MCP", "PROBLEM", "operation registry or input schema is unavailable", "重新构建或重新安装 aboard binary。"})
+		lines = append(lines, doctorLine{"MCP", "PROBLEM", "The operation registry or input schema is unavailable.", "Rebuild or reinstall the aboard binary."})
 		healthy = false
 	}
 
