@@ -15,6 +15,7 @@ import (
 // Info identifies the server and the Board it serves.
 type Info struct {
 	Version      string
+	ProjectName  string
 	ProjectID    string
 	DatabasePath string
 }
@@ -62,7 +63,7 @@ func toolResult(value any, isError bool) *mcp.CallToolResult {
 }
 
 func instructions(info Info) string {
-	return "Agent Board shared task ledger for project " + info.ProjectID + " (database " + info.DatabasePath + ").\n" +
+	return "Agent Board shared task ledger for project " + info.ProjectName + " (project_id " + info.ProjectID + "; database " + info.DatabasePath + ").\n" +
 		"The tools record Board facts: tasks, explicit task-level state (READY, IN_PROGRESS, DONE, BLOCKED), READY ordering, task facts, and the audit log. " +
 		"They do not schedule work or decide workflow; which role should call which tool, and when, is defined by the Agent Board Workflow Skill.\n" +
 		"Mutations of a task require expected_version (the version you last read) and fail with VERSION_CONFLICT when it is stale; re-read the task before retrying. " +

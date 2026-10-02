@@ -235,6 +235,7 @@ func runClean(args []string, env Env) error {
 		return err
 	}
 	identityPath := filepath.Join(project.Root, projectconfig.IdentityFileName)
+	fmt.Fprintf(env.Stdout, "Project: %s (project_id %s)\n", project.Identity.Name, project.Identity.ProjectID)
 	fmt.Fprintf(env.Stdout, "Project identity: %s\nBoard data: %s\n", identityPath, project.DataDir)
 	if !*yes {
 		fmt.Fprint(env.Stdout, "Remove this project's Agent Board data and identity? [y/N] ")
@@ -1186,9 +1187,10 @@ func runBoard(ctx context.Context, args []string, env Env) error {
 		return err
 	}
 	return writeJSON(env.Stdout, map[string]any{
-		"project_id": project.Identity.ProjectID,
-		"ready":      ready,
-		"tasks":      tasks.Tasks,
+		"project_id":   project.Identity.ProjectID,
+		"project_name": project.Identity.Name,
+		"ready":        ready,
+		"tasks":        tasks.Tasks,
 	})
 }
 
@@ -1205,6 +1207,7 @@ func runMCP(ctx context.Context, args []string, env Env) error {
 	server := mcpserver.New(service, mcpserver.Info{
 		Version:      env.Version,
 		ProjectID:    project.Identity.ProjectID,
+		ProjectName:  project.Identity.Name,
 		DatabasePath: project.DatabasePath,
 	})
 	stdin := &eofReader{reader: env.Stdin}

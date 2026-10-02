@@ -174,6 +174,63 @@ func TestInitAndCheck(t *testing.T) {
 	customHarness.fails(ExitUsage, CodeUsage, "init", "--name", " \t ")
 }
 
+func TestCleanDisplaysProjectNameBeforeRemoval(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		args []string
+	}{
+		{name: "yes", args: []string{"clean", "--yes"}},
+		{name: "interactive confirmation", args: []string{"clean"}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			h := newHarness(t)
+			h.ok("board")
+			identityPath := filepath.Join(h.repo, projectconfig.IdentityFileName)
+			identity := decodeJSON[projectconfig.Identity](t, string(mustRead(t, identityPath)))
+			input := ""
+			if test.name == "interactive confirmation" {
+				input = "yes\n"
+			}
+			code, output, stderr := h.run(input, test.args...)
+			if code != ExitOK || stderr != "" {
+				t.Fatalf("clean exit %d stdout %q stderr %q", code, output, stderr)
+			}
+			nameAt := strings.Index(output, identity.Name)
+			if nameAt < 0 {
+				t.Fatalf("clean output %q does not contain project name %q", output, identity.Name)
+			}
+			if len(test.args) == 1 {
+				promptAt := strings.Index(output, "Remove this project's Agent Board data and identity?")
+				if promptAt < 0 || nameAt > promptAt {
+					t.Fatalf("project name is not printed before confirmation prompt: %q", output)
+				}
+			}
+			if _, err := os.Stat(identityPath); !errors.Is(err, os.ErrNotExist) {
+				t.Fatalf("project identity still exists after confirmed cleanup: %v", err)
+			}
+			if _, err := os.Stat(filepath.Join(h.env.Home, ".agent-board", identity.ProjectID)); !errors.Is(err, os.ErrNotExist) {
+				t.Fatalf("Board data still exists after confirmed cleanup: %v", err)
+			}
+		})
+	}
+}
+
+func TestCleanCancellationPreservesProjectContents(t *testing.T) {
+	h := newHarness(t)
+	h.ok("board")
+	identityPath := filepath.Join(h.repo, projectconfig.IdentityFileName)
+	identity := decodeJSON[projectconfig.Identity](t, string(mustRead(t, identityPath)))
+	dataDir := filepath.Join(h.env.Home, ".agent-board", identity.ProjectID)
+	before := snapshotTree(t, h.repo, dataDir)
+	code, output, stderr := h.run("no\n", "clean")
+	if code != ExitOK || stderr != "" || !strings.Contains(output, identity.Name) || !strings.Contains(output, "Cleanup cancelled; nothing was removed.") {
+		t.Fatalf("clean cancellation exit %d stdout %q stderr %q", code, output, stderr)
+	}
+	if after := snapshotTree(t, h.repo, dataDir); !reflect.DeepEqual(before, after) {
+		t.Fatalf("cancelled clean changed project contents: before %v after %v", before, after)
+	}
+}
+
 func TestDoctorExplicitlyMigratesVersionOneIdentity(t *testing.T) {
 	h := newHarness(t)
 	identityPath := filepath.Join(h.repo, projectconfig.IdentityFileName)
@@ -703,11 +760,13 @@ func TestTaskLifecycleCommands(t *testing.T) {
 	}
 
 	view := decodeJSON[struct {
-		ProjectID string            `json:"project_id"`
-		Ready     domain.ReadyQueue `json:"ready"`
-		Tasks     []domain.Task     `json:"tasks"`
+		ProjectID   string            `json:"project_id"`
+		ProjectName string            `json:"project_name"`
+		Ready       domain.ReadyQueue `json:"ready"`
+		Tasks       []domain.Task     `json:"tasks"`
 	}](t, h.ok("board"))
-	if len(view.Tasks) != 2 || len(view.Ready.Tasks) != 1 || view.ProjectID == "" {
+	identity := decodeJSON[projectconfig.Identity](t, string(mustRead(t, filepath.Join(h.repo, projectconfig.IdentityFileName))))
+	if len(view.Tasks) != 2 || len(view.Ready.Tasks) != 1 || view.ProjectID != identity.ProjectID || view.ProjectName != identity.Name {
 		t.Fatalf("board %+v", view)
 	}
 }
@@ -783,6 +842,13 @@ func TestMCPCommand(t *testing.T) {
 	session, err := client.Connect(context.Background(), &mcp.IOTransport{Reader: clientIn, Writer: clientOut}, nil)
 	if err != nil {
 		t.Fatal(err)
+	}
+	identity := decodeJSON[projectconfig.Identity](t, string(mustRead(t, filepath.Join(h.repo, projectconfig.IdentityFileName))))
+	instructions := session.InitializeResult().Instructions
+	for _, want := range []string{identity.Name, identity.ProjectID, filepath.Join(h.env.Home, ".agent-board", identity.ProjectID, "board.db")} {
+		if !strings.Contains(instructions, want) {
+			t.Errorf("MCP initialize instructions %q do not contain %q", instructions, want)
+		}
 	}
 	result, err := session.CallTool(context.Background(), &mcp.CallToolParams{Name: "get_task", Arguments: map[string]any{"task": "1"}})
 	if err != nil || result.IsError {

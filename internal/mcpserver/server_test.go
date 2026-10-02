@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -24,7 +25,7 @@ func connect(t *testing.T, defaultActor string) *mcp.ClientSession {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { service.Close(ctx) })
-	server := New(ops.New(service, defaultActor), Info{Version: "test", ProjectID: testProjectID, DatabasePath: "board.db"})
+	server := New(ops.New(service, defaultActor), Info{Version: "test", ProjectName: "Readable Project", ProjectID: testProjectID, DatabasePath: "board.db"})
 	serverTransport, clientTransport := mcp.NewInMemoryTransports()
 	serverSession, err := server.Connect(ctx, serverTransport, nil)
 	if err != nil {
@@ -87,6 +88,12 @@ func requireToolError(t *testing.T, result *mcp.CallToolResult, code string) dom
 // nothing else (no role, workflow, or runtime tools).
 func TestToolsAreTheOperationCatalog(t *testing.T) {
 	session := connect(t, "tester")
+	instructions := session.InitializeResult().Instructions
+	for _, want := range []string{"Readable Project", testProjectID, "board.db"} {
+		if !strings.Contains(instructions, want) {
+			t.Errorf("initialize instructions %q do not contain %q", instructions, want)
+		}
+	}
 	listed, err := session.ListTools(context.Background(), nil)
 	if err != nil {
 		t.Fatal(err)
