@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/boboty/agent-board/internal/board"
 	"github.com/boboty/agent-board/internal/domain"
@@ -289,6 +290,97 @@ func TestGroupByStateUsesOnlyStateAndRank(t *testing.T) {
 	if columns[2].State != domain.StateDone || len(columns[2].Cards) != 1 || columns[2].Cards[0].Up != nil {
 		t.Fatalf("DONE column %+v", columns[2])
 	}
+}
+
+func TestCompletedOrderingUsesLatestDoneTransitionAndDeterministicFallback(t *testing.T) {
+	f := newFixture(t)
+	older := f.queue(f.create("created first, completed last"))
+	newer := f.queue(f.create("created second, completed first"))
+	f.setState(newer, domain.StateDone)
+	older = f.setState(older, domain.StateDone)
+
+	items, err := loadCompleted(context.Background(), f.ops)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 2 || items[0].Task.Number != older.Number || items[1].Task.Number != newer.Number {
+		t.Fatalf("completion order = %v, want newest first", completedNumbers(items))
+	}
+
+	// Edits and appended facts are later events but must not change completion time.
+	title := "edited after completion"
+	if _, err := f.ops.UpdateTask(context.Background(), ops.UpdateTaskArgs{Task: older.ID, ExpectedVersion: older.Version, Title: &title}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.ops.RecordFact(context.Background(), ops.RecordFactArgs{Task: older.ID, Kind: domain.FactNote, Body: "post completion note"}); err != nil {
+		t.Fatal(err)
+	}
+	items, err = loadCompleted(context.Background(), f.ops)
+	if err != nil || items[0].Task.Number != older.Number {
+		t.Fatalf("post-completion edit/fact changed order: %v, err=%v", completedNumbers(items), err)
+	}
+	reopened := f.setState(f.task(older.ID), domain.StateInProgress)
+	f.setState(reopened, domain.StateDone)
+	items, err = loadCompleted(context.Background(), f.ops)
+	if err != nil || items[0].Task.Number != older.Number {
+		t.Fatalf("re-completion did not become the latest completion: %v, err=%v", completedNumbers(items), err)
+	}
+
+	unknownA := completedTask{Task: domain.Task{Number: 3}}
+	unknownB := completedTask{Task: domain.Task{Number: 1}}
+	sameA := completedTask{Task: domain.Task{Number: 8}, CompletedAt: items[0].CompletedAt}
+	sameB := completedTask{Task: domain.Task{Number: 2}, CompletedAt: items[0].CompletedAt}
+	if compareCompleted(unknownA, unknownB) <= 0 || compareCompleted(sameA, sameB) <= 0 || compareCompleted(unknownA, items[0]) <= 0 {
+		t.Fatal("fallback must sort after known completion times and by ascending task number; equal times also use ascending task number")
+	}
+	completedTime := templateFuncs["completedTime"].(func(*UIStrings, *time.Time) string)
+	if got := completedTime(&zhCN, nil); got != "时间缺失" {
+		t.Fatalf("missing completion time displayed as %q", got)
+	}
+}
+
+func TestCompletedPageIsBoundedAndHandlesEmptyState(t *testing.T) {
+	f := newFixture(t)
+	for i := 1; i <= completedPageSize+1; i++ {
+		task := f.queue(f.create(fmt.Sprintf("done %02d", i)))
+		f.setState(task, domain.StateDone)
+	}
+
+	home := f.get("/")
+	if got := boardLayout(t, home.body)["DONE"]; len(got) != homeDoneLimit || got[0] != completedPageSize+1 {
+		t.Fatalf("home DONE = %v, want %d newest tasks first", got, homeDoneLimit)
+	}
+	if !strings.Contains(home.body, "当前已完成: 21") || !strings.Contains(home.body, `href="/completed/"`) {
+		t.Fatal("home is missing the accurate DONE total or completed-history link")
+	}
+
+	first := f.get("/completed/")
+	if first.status != http.StatusOK || !strings.Contains(first.body, `data-completed-page="1"`) || strings.Count(first.body, `class="board-card" data-task=`) != completedPageSize {
+		t.Fatalf("first history page status/content mismatch: %d", first.status)
+	}
+	if !strings.Contains(first.body, "/completed/?page=2") || !strings.Contains(first.body, "/?task=21") {
+		t.Fatal("history page is missing next-page or task-detail links")
+	}
+	last := f.get("/completed/?page=2")
+	if !strings.Contains(last.body, `data-completed-page="2"`) || !strings.Contains(last.body, "/?task=1") || !strings.Contains(last.body, `href="/"`) {
+		t.Fatal("last history page is missing its task detail or home link")
+	}
+	if strings.Contains(last.body, "/completed/?page=3") {
+		t.Fatal("last history page should not have a next page")
+	}
+
+	empty := newFixture(t)
+	if response := empty.get("/completed/"); response.status != http.StatusOK || !strings.Contains(response.body, zhCN.NoCompleted) || !strings.Contains(response.body, zhCN.BackHome) {
+		t.Fatalf("empty history state: status=%d", response.status)
+	}
+}
+
+func completedNumbers(items []completedTask) []int64 {
+	numbers := make([]int64, len(items))
+	for i, item := range items {
+		numbers[i] = item.Task.Number
+	}
+	return numbers
 }
 
 func TestWebWritesGoThroughTheBoard(t *testing.T) {

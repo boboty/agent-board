@@ -153,9 +153,12 @@ independent Workflow Skill.
 
 ### Web Board
 
-`aboard web` serves a browser Board for people on a loopback address
-(default `127.0.0.1:7420`; `--addr 127.0.0.1:0` picks a free port) and prints
-its URL as JSON. Four columns — READY, IN PROGRESS, DONE, BLOCKED — come
+`aboard web` serves a browser Board for people on a loopback address and
+prints its URL as JSON. Without `--addr` it listens on `127.0.0.1` with a free
+port chosen by the OS, so several projects can run `aboard web` at the same
+time; read the actual address from the printed `url`. `--addr 127.0.0.1:PORT`
+binds exactly that port and fails if it is taken (it never picks another);
+`--addr 127.0.0.1:0` is the same as the default. Four columns — READY, IN PROGRESS, DONE, BLOCKED — come
 directly from each task's recorded `state`; unqueued tasks are listed
 separately, not as a column. A task drawer shows content, facts, and audit
 history, and offers edit, queue, set state, and record fact; READY cards move
@@ -163,6 +166,14 @@ up and down. Every write calls the same operations as MCP and the CLI, so the
 Board's version checks, idempotency, transactions, and audit apply unchanged.
 Writes are recorded with `--actor` / `$AGENT_BOARD_ACTOR`, else `web`. The
 page follows changes made by any process (polling with ETags).
+
+The home DONE column shows at most 8 tasks and links to `/completed/`, where
+current DONE tasks are shown 20 per page. Completion time comes from the
+latest recorded state-change event whose transition enters DONE. If no such
+event exists, the page shows “时间缺失”; those tasks follow tasks with a
+recorded completion time and use ascending task number as their stable order.
+Equal completion times also use ascending task number. Only tasks whose
+current recorded state is DONE appear in either view.
 
 Only loopback binds are accepted. Requests must name the bound host
 (`127.0.0.1:PORT` or `localhost:PORT`) and a same-origin `Origin`; writes also

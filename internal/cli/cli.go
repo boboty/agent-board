@@ -66,7 +66,7 @@ Project:
   board                        show the READY queue and every task
   mcp                          serve the Board as MCP tools over stdio
   mcp config [HARNESS]         print stdio MCP configuration (generic, claude-code, codex, opencode)
-  web [--addr 127.0.0.1:7420]  serve the Web Board on a loopback address
+  web [--addr HOST:PORT]       serve the Web Board on a loopback address (default: free port on 127.0.0.1)
 
 Skills:
   skill install [management|workflow] 安装一个或全部内嵌 Skill
@@ -853,7 +853,7 @@ const DefaultWebActor = "web"
 
 func runWeb(ctx context.Context, args []string, env Env) error {
 	c := newCommand("web", env)
-	addr := c.flags.String("addr", "127.0.0.1:7420", "loopback address to listen on (port 0 picks a free port)")
+	addr := c.flags.String("addr", "127.0.0.1:0", "loopback address to listen on (default: free port chosen by the OS; the URL is printed on start)")
 	if _, err := c.parse(args, 0, 0); err != nil {
 		return err
 	}

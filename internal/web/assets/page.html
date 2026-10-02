@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{{.T.ProductName}} · {{.T.BoardSubtitle}}</title>
+<title>{{.T.ProductName}} · {{if .Completed}}{{.T.CompletedTitle}}{{else}}{{.T.BoardSubtitle}}{{end}}</title>
 <link rel="stylesheet" href="/assets/board.css">
 <script src="/assets/board.js" defer></script>
 </head>
@@ -21,7 +21,11 @@
 {{with .Banner}}<div class="board-banner{{if .Error}} board-banner-error{{end}}" role="status" id="board-banner">{{.Text}}</div>{{end}}
 <div class="board-live-status" id="live-status" role="status" aria-live="polite" hidden></div>
 </div>
+{{if .Completed}}
+<main class="board-main">{{template "completed" (completedArgs .T .Completed)}}</main>
+{{else}}
 <main class="board-main" id="board-live" data-etag="{{.ETag}}" data-live-query="{{.LiveQuery}}">{{.Live}}</main>
+{{end}}
 <div class="modal-overlay" id="new-task-modal"{{if not .NewOpen}} hidden{{end}}>
   <div class="modal" role="dialog" aria-modal="true" aria-labelledby="new-task-heading">
     <a class="modal-close" href="/" data-close-modal aria-label="{{.T.Close}}">&times;</a>
@@ -50,8 +54,18 @@
 <section class="board-columns">
 {{range $col := .Columns}}
   <section class="board-col board-col-{{colClass $col.State}}" data-column="{{$col.State}}">
-    <h2 class="board-col-heading"><span>{{stateLabel $col.State}} <span class="board-col-code">{{stateCode $col.State}}</span></span><span class="board-col-count">{{len $col.Cards}}</span></h2>
+    <h2 class="board-col-heading"><span>{{stateLabel $col.State}} <span class="board-col-code">{{stateCode $col.State}}</span></span><span class="board-col-count">{{if eq $col.State "DONE"}}{{$.DoneTotal}}{{else}}{{len $col.Cards}}{{end}}</span></h2>
+    {{if eq $col.State "DONE"}}<p class="board-hint done-summary">{{$.T.DoneTotalLabel}}: {{$.DoneTotal}} · <a href="/completed/">{{$.T.ViewAllCompleted}}</a></p>{{end}}
     <div class="board-col-cards">
+    {{if eq $col.State "DONE"}}
+    {{range $i, $item := $.DoneCards}}
+      <article class="board-card" data-task="{{$item.Task.Number}}">
+        <div class="board-card-head"><a class="board-card-id" href="/?task={{$item.Task.Number}}">#{{$item.Task.Number}}</a></div>
+        <a class="board-card-title" href="/?task={{$item.Task.Number}}">{{$item.Task.Title}}</a>
+        <div class="board-hint">{{$.T.CompletedAt}}: {{completedTime $.T $item.CompletedAt}}</div>
+      </article>
+    {{else}}<p class="board-empty">{{$.T.NoCompleted}}</p>{{end}}
+    {{else}}
     {{range $i, $card := $col.Cards}}
       <article class="board-card" data-task="{{$card.Number}}">
         <div class="board-card-head">
@@ -70,9 +84,11 @@
     {{else}}
       <p class="board-empty">{{$.T.NoCards}}</p>
     {{end}}
+    {{end}}
     </div>
   </section>
 {{end}}
+
 </section>
 
 <section class="board-unqueued" data-unqueued>
@@ -94,6 +110,28 @@
 </section>
 
 {{with .Detail}}{{template "detail" (detailArgs $ .)}}{{end}}
+{{end}}
+
+{{define "completed"}}
+<section class="completed-page">
+  <header class="completed-heading">
+    <div><h2>{{.T.CompletedTitle}}</h2><p class="board-hint">{{.T.CompletedTotalLabel}}: {{.Page.Total}}</p></div>
+    <a class="btn" href="/">{{.T.BackHome}}</a>
+  </header>
+  <section class="completed-list" data-completed-page="{{.Page.Page}}">
+  {{range .Page.Tasks}}
+    <article class="board-card" data-task="{{.Task.Number}}">
+      <div class="board-card-head"><a class="board-card-id" href="/?task={{.Task.Number}}">#{{.Task.Number}}</a><span class="board-hint">{{$.T.CompletedAt}}: {{completedTime $.T .CompletedAt}}</span></div>
+      <a class="board-card-title" href="/?task={{.Task.Number}}">{{.Task.Title}}</a>
+    </article>
+  {{else}}<p class="board-empty">{{.T.NoCompleted}}</p>{{end}}
+  </section>
+  <nav class="completed-pagination" aria-label="{{.T.Pagination}}">
+    {{if gt .Page.Page 1}}<a class="btn" href="/completed/?page=1">{{.T.FirstPage}}</a><a class="btn" href="/completed/?page={{sub .Page.Page 1}}">{{.T.PreviousPage}}</a>{{else}}<span class="btn" aria-disabled="true">{{.T.FirstPage}}</span><span class="btn" aria-disabled="true">{{.T.PreviousPage}}</span>{{end}}
+    <span>{{.T.PageLabel}} {{.Page.Page}} / {{.Page.PageCount}}</span>
+    {{if lt .Page.Page .Page.PageCount}}<a class="btn" href="/completed/?page={{add .Page.Page 1}}">{{.T.NextPage}}</a><a class="btn" href="/completed/?page={{.Page.PageCount}}">{{.T.LastPage}}</a>{{else}}<span class="btn" aria-disabled="true">{{.T.NextPage}}</span><span class="btn" aria-disabled="true">{{.T.LastPage}}</span>{{end}}
+  </nav>
+</section>
 {{end}}
 
 {{define "move"}}

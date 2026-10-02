@@ -15,8 +15,22 @@ type UIStrings struct {
 	ProjectLabel  string
 	ActorLabel    string
 
-	Columns map[domain.State]string
-	NoCards string
+	Columns              map[domain.State]string
+	NoCards              string
+	DoneTotalLabel       string
+	ViewAllCompleted     string
+	NoCompleted          string
+	CompletedTitle       string
+	CompletedTotalLabel  string
+	CompletedAt          string
+	CompletedTimeMissing string
+	BackHome             string
+	Pagination           string
+	FirstPage            string
+	PreviousPage         string
+	NextPage             string
+	LastPage             string
+	PageLabel            string
 
 	Unqueued     string
 	UnqueuedHint string
@@ -96,7 +110,21 @@ var zhCN = UIStrings{
 		domain.StateDone:       "已完成",
 		domain.StateBlocked:    "已阻塞",
 	},
-	NoCards: "暂无任务",
+	NoCards:              "暂无任务",
+	DoneTotalLabel:       "当前已完成",
+	ViewAllCompleted:     "查看全部已完成",
+	NoCompleted:          "暂无已完成任务",
+	CompletedTitle:       "已完成任务",
+	CompletedTotalLabel:  "当前 DONE 总数",
+	CompletedAt:          "完成时间",
+	CompletedTimeMissing: "时间缺失",
+	BackHome:             "返回首页",
+	Pagination:           "已完成任务分页",
+	FirstPage:            "第一页",
+	PreviousPage:         "上一页",
+	NextPage:             "下一页",
+	LastPage:             "末页",
+	PageLabel:            "页码",
 
 	Unqueued:     "未入队任务",
 	UnqueuedHint: "未入队的任务没有生命周期状态，不属于任何一列；入队后进入 READY。",

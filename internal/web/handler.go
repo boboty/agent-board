@@ -19,6 +19,7 @@ import (
 	"net/url"
 	"path"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -82,6 +83,7 @@ func NewHandler(service *ops.Service, info Info) (http.Handler, error) {
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /{$}", h.servePage)
+	mux.HandleFunc("GET /completed/{$}", h.serveCompleted)
 	mux.HandleFunc("GET /live", h.serveLive)
 	mux.HandleFunc("GET /assets/{name}", h.serveAsset)
 	mux.HandleFunc("POST /tasks", h.write(h.createTask))
@@ -113,6 +115,7 @@ type pageView struct {
 	Live      template.HTML
 	ETag      string
 	LiveQuery string
+	Completed *completedPageView
 }
 
 type banner struct {
@@ -146,6 +149,41 @@ func (h *handler) servePage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeBody(w, r, status, "text/html; charset=utf-8", page.Bytes())
+}
+
+func (h *handler) serveCompleted(w http.ResponseWriter, r *http.Request) {
+	tasks, err := loadCompleted(r.Context(), h.ops)
+	if err != nil {
+		h.serverError(w, err)
+		return
+	}
+	page := parsePage(r.URL.Query().Get("page"))
+	pageCount := max(1, (len(tasks)+completedPageSize-1)/completedPageSize)
+	if page > pageCount {
+		page = pageCount
+	}
+	start := (page - 1) * completedPageSize
+	end := min(start+completedPageSize, len(tasks))
+	view := pageView{
+		T:         &zhCN,
+		Info:      h.info,
+		Banner:    pageBanner(r.URL.Query()),
+		Completed: &completedPageView{Tasks: tasks[start:end], Total: len(tasks), Page: page, PageCount: pageCount},
+	}
+	var pageHTML bytes.Buffer
+	if err := h.tmpl.ExecuteTemplate(&pageHTML, "page", view); err != nil {
+		h.serverError(w, err)
+		return
+	}
+	writeBody(w, r, http.StatusOK, "text/html; charset=utf-8", pageHTML.Bytes())
+}
+
+func parsePage(raw string) int {
+	page, err := strconv.Atoi(raw)
+	if err != nil || page < 1 {
+		return 1
+	}
+	return page
 }
 
 // serveLive returns only the live region, with an ETag of its content, so the
@@ -267,6 +305,10 @@ type (
 		T    *UIStrings
 		Fact domain.TaskFact
 	}
+	completedArgs struct {
+		T    *UIStrings
+		Page *completedPageView
+	}
 )
 
 var templateFuncs = template.FuncMap{
@@ -288,6 +330,16 @@ var templateFuncs = template.FuncMap{
 		return strings.ToLower(strings.ReplaceAll(string(state), "_", "-"))
 	},
 	"add": func(a, b int) int { return a + b },
+	"sub": func(a, b int) int { return a - b },
+	"completedArgs": func(t *UIStrings, page *completedPageView) completedArgs {
+		return completedArgs{T: t, Page: page}
+	},
+	"completedTime": func(t *UIStrings, at *time.Time) string {
+		if at == nil {
+			return t.CompletedTimeMissing
+		}
+		return at.Local().Format("2006-01-02 15:04:05")
+	},
 	"moveArgs": func(board boardView, order []string, label, direction string) moveArgs {
 		return moveArgs{Board: board, Order: order, Label: label, Direction: direction}
 	},
