@@ -69,9 +69,9 @@ Project:
   web [--addr HOST:PORT]       serve the Web Board on a loopback address (default: free port on 127.0.0.1)
 
 Skills:
-  skill install [management|workflow] 安装一个或全部内嵌 Skill
-  skill check [management|workflow]   检查一个或全部 Skill 安装状态
-  skill show management|workflow      显示指定的内嵌 Skill
+  skill install [management|workflow] install all embedded Skills by default, or select one
+  skill check [management|workflow]   check installation status for all Skills by default, or select one
+  skill show management|workflow      display the specified embedded Skill
 
 Tasks:
   task create --title T [--description D] [--acceptance A]
