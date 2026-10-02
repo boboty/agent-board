@@ -32,22 +32,26 @@ func runMCPConfig(args []string, env Env) error {
 	if !filepath.IsAbs(executable) {
 		return fmt.Errorf("resolve aboard executable: path is not absolute: %q", executable)
 	}
+	actor := "harness/" + harness
 
 	switch harness {
 	case "generic":
-		fmt.Fprintln(env.Stdout, "Generic stdio MCP launch configuration (command + args):")
-		return writeJSON(env.Stdout, map[string]any{"command": executable, "args": []string{"mcp"}})
+		return writeJSON(env.Stdout, map[string]any{
+			"command": executable,
+			"args":    []string{"mcp"},
+			"env":     map[string]string{"AGENT_BOARD_ACTOR": actor},
+		})
 	case "claude-code":
 		fmt.Fprintln(env.Stdout, "Claude Code — run this command (user scope):")
-		_, err = fmt.Fprintf(env.Stdout, "claude mcp add --transport stdio --scope user aboard -- %s mcp\n", shellQuote(executable))
+		_, err = fmt.Fprintf(env.Stdout, "claude mcp add --transport stdio --scope user aboard --env %s -- %s mcp\n", shellQuote("AGENT_BOARD_ACTOR="+actor), shellQuote(executable))
 		return err
 	case "codex":
 		fmt.Fprintln(env.Stdout, "Codex — add this to ~/.codex/config.toml:")
-		_, err = fmt.Fprintf(env.Stdout, "\n[mcp_servers.aboard]\ncommand = %s\nargs = [\"mcp\"]\n", strconv.Quote(executable))
+		_, err = fmt.Fprintf(env.Stdout, "\n[mcp_servers.aboard]\ncommand = %s\nargs = [\"mcp\"]\nenv = { AGENT_BOARD_ACTOR = %s }\n", strconv.Quote(executable), strconv.Quote(actor))
 		return err
 	case "opencode":
 		fmt.Fprintln(env.Stdout, "OpenCode — merge this into ~/.config/opencode/opencode.json:")
-		_, err = fmt.Fprintf(env.Stdout, "\n{\n  \"mcp\": {\n    \"aboard\": {\n      \"type\": \"local\",\n      \"command\": [%s, \"mcp\"],\n      \"enabled\": true\n    }\n  }\n}\n", jsonString(executable))
+		_, err = fmt.Fprintf(env.Stdout, "\n{\n  \"mcp\": {\n    \"aboard\": {\n      \"type\": \"local\",\n      \"command\": [%s, \"mcp\"],\n      \"environment\": {\"AGENT_BOARD_ACTOR\": %s},\n      \"enabled\": true\n    }\n  }\n}\n", jsonString(executable), jsonString(actor))
 		return err
 	default:
 		panic("validated harness fell through")

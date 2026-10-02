@@ -374,21 +374,54 @@ func TestMCPConfigCommands(t *testing.T) {
 	checks := []struct {
 		harness  string
 		contains string
+		actor    string
 	}{
-		{"generic", `"args": [`},
-		{"claude-code", `claude mcp add --transport stdio --scope user aboard -- '`},
-		{"codex", `[mcp_servers.aboard]`},
-		{"opencode", `"aboard": {`},
+		{"generic", `"args": [`, "harness/generic"},
+		{"claude-code", `claude mcp add --transport stdio --scope user aboard --env 'AGENT_BOARD_ACTOR=harness/claude-code' -- '`, "harness/claude-code"},
+		{"codex", `[mcp_servers.aboard]`, "harness/codex"},
+		{"opencode", `"aboard": {`, "harness/opencode"},
 	}
 	for _, check := range checks {
 		got := h.ok("mcp", "config", check.harness)
-		if !strings.Contains(got, check.contains) || !strings.Contains(got, path) {
+		if !strings.Contains(got, check.contains) || !strings.Contains(got, path) || !strings.Contains(got, check.actor) {
 			t.Errorf("%s config = %q; want marker %q and executable %q", check.harness, got, check.contains, path)
 		}
 	}
 	generic := h.ok("mcp", "config")
-	if !strings.Contains(generic, `"command": "`+path+`"`) {
-		t.Fatalf("default generic config lacks injected executable: %q", generic)
+	var genericConfig struct {
+		Command string            `json:"command"`
+		Args    []string          `json:"args"`
+		Env     map[string]string `json:"env"`
+	}
+	if err := json.Unmarshal([]byte(generic), &genericConfig); err != nil {
+		t.Fatalf("generic config is not JSON: %v (%q)", err, generic)
+	}
+	if genericConfig.Command != path || !filepath.IsAbs(genericConfig.Command) || !reflect.DeepEqual(genericConfig.Args, []string{"mcp"}) || genericConfig.Env["AGENT_BOARD_ACTOR"] != "harness/generic" {
+		t.Fatalf("generic MCP config = %+v", genericConfig)
+	}
+	claude := h.ok("mcp", "config", "claude-code")
+	if !strings.Contains(claude, "--transport stdio") || !strings.Contains(claude, "aboard --env 'AGENT_BOARD_ACTOR=harness/claude-code' -- '") {
+		t.Fatalf("Claude Code config does not carry stdio actor environment: %q", claude)
+	}
+	codex := h.ok("mcp", "config", "codex")
+	if !strings.Contains(codex, `args = ["mcp"]`) || !strings.Contains(codex, `env = { AGENT_BOARD_ACTOR = "harness/codex" }`) {
+		t.Fatalf("Codex config does not carry stdio actor environment: %q", codex)
+	}
+	opencode := h.ok("mcp", "config", "opencode")
+	var openCodeConfig struct {
+		MCP map[string]struct {
+			Type        string            `json:"type"`
+			Command     []string          `json:"command"`
+			Environment map[string]string `json:"environment"`
+			Enabled     bool              `json:"enabled"`
+		} `json:"mcp"`
+	}
+	if err := json.Unmarshal([]byte(opencode[strings.Index(opencode, "{"):]), &openCodeConfig); err != nil {
+		t.Fatalf("OpenCode config is not JSON: %v (%q)", err, opencode)
+	}
+	openCodeServer := openCodeConfig.MCP["aboard"]
+	if openCodeServer.Type != "local" || !reflect.DeepEqual(openCodeServer.Command, []string{path, "mcp"}) || openCodeServer.Environment["AGENT_BOARD_ACTOR"] != "harness/opencode" || !openCodeServer.Enabled {
+		t.Fatalf("OpenCode MCP config = %+v", openCodeServer)
 	}
 	h.fails(ExitUsage, CodeUsage, "mcp", "config", "unknown")
 	h.fails(ExitUsage, CodeUsage, "mcp", "config", "codex", "extra")

@@ -51,12 +51,15 @@ resolves to.
 `aboard mcp` discovers the project from its working directory and serves
 the Board over stdio. `aboard mcp config` prints a generic stdio launch
 configuration; pass `claude-code`, `codex`, or `opencode` to print a
-Harness-specific snippet. For example:
+Harness-specific snippet. Each generated configuration supplies a stable
+`AGENT_BOARD_ACTOR` value: `harness/generic`, `harness/claude-code`,
+`harness/codex`, or `harness/opencode`. For example:
 
 ```json
 {
   "command": "/absolute/path/to/aboard",
-  "args": ["mcp"]
+  "args": ["mcp"],
+  "env": {"AGENT_BOARD_ACTOR": "harness/generic"}
 }
 ```
 
@@ -66,7 +69,15 @@ prints a `claude mcp add` command, Codex prints a TOML section for
 `~/.config/opencode/opencode.json`. Merge file fragments into existing
 configuration as needed; `mcp config` only prints text and never edits Harness
 files. It resolves the running executable path so the generated command works
-even when the binary is not on the Harness's `PATH`.
+even when the binary is not on the Harness's `PATH`. The actor value is an
+audit label identifying the configuration's Harness source. It is not
+authorization and does not claim a Human, Orchestrator, Developer, or Verifier
+role. An explicit `actor` supplied with an MCP tool call takes precedence and
+is recorded for that mutation; calls without it use the configured default.
+This is independent of any role or session actor used by the Workflow Skill.
+The same Harness always gets the same default label, while labels distinguish
+the Harness source. No shell environment setup is required to use the printed
+configuration.
 
 Tools: `create_task`, `get_task`, `list_tasks`, `update_task`, `queue_task`,
 `set_task_state`, `list_ready`, `reorder_ready`, `record_fact`, `list_facts`,
