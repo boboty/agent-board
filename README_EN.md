@@ -34,7 +34,7 @@ Developer implements → a **fresh, independent session/instance** acts as Verif
 ![Task detail: delivery, independent verification, and audit history](docs/images/task-detail.webp)
 
 - the coupon Task records Developer delivery, Independent Verifier PASS, and the verification evidence
-- the Redis migration is BLOCKED because a Human must confirm the downtime window — that is where your attention belongs
+- the Redis migration is BLOCKED because a Human must confirm the rollout window — that is where your attention belongs
 
 You keep three jobs: **what to do, what comes first, and what requires judgment.**
 

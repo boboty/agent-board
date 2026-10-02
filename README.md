@@ -34,7 +34,7 @@ Developer 实现 → 一个**全新、独立会话/实例**的 Verifier 按验�
 ![Task 详情：交付、独立验证、审计历史](docs/images/task-detail.webp)
 
 - 优惠券那张卡：Developer 交付，Independent Verifier 验证 PASS，验证内容和证据都留在 Task 里
-- Redis 迁移那张卡停在 BLOCKED：*需要 Human 确认停机窗口*——这才是你需要花时间的地方
+- Redis 迁移那张卡停在 BLOCKED：*需要 Human 确认灰度窗口*——这才是你需要花时间的地方
 
 你只负责三件事：**做什么、先做什么、分歧怎么裁决。**
 
