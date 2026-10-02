@@ -5,6 +5,7 @@
 package cli
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -61,6 +62,7 @@ const usage = `usage: aboard <command> [flags]
 
 Project:
   init                         create .agent-board.json here and the shared Board database
+  clean [--yes]                remove this project's identity and shared Board data
   check                        show project discovery and database location
   doctor                       diagnose installation and current project setup
   board                        show the READY queue and every task
@@ -162,6 +164,8 @@ func run(ctx context.Context, args []string, env Env) error {
 		return nil
 	case "init":
 		return runInit(ctx, rest, env)
+	case "clean":
+		return runClean(rest, env)
 	case "check":
 		return runCheck(ctx, rest, env)
 	case "doctor":
@@ -210,6 +214,40 @@ func run(ctx context.Context, args []string, env Env) error {
 	default:
 		return usagef("unknown command %q", name)
 	}
+}
+
+func runClean(args []string, env Env) error {
+	c := newCommand("clean", env)
+	yes := c.flags.Bool("yes", false, "confirm removal without prompting")
+	if _, err := c.parse(args, 0, 0); err != nil {
+		return err
+	}
+	project, err := workspace.Locate(c.dir, env.Home)
+	if err != nil {
+		return err
+	}
+	identityPath := filepath.Join(project.Root, projectconfig.IdentityFileName)
+	fmt.Fprintf(env.Stdout, "Project identity: %s\nBoard data: %s\n", identityPath, project.DataDir)
+	if !*yes {
+		fmt.Fprint(env.Stdout, "Remove this project's Agent Board data and identity? [y/N] ")
+		line, readErr := bufio.NewReader(env.Stdin).ReadString('\n')
+		if readErr != nil && !errors.Is(readErr, io.EOF) {
+			return domain.NewError("PROJECT_CLEAN_FAILED", "cannot read confirmation; nothing was removed", false)
+		}
+		answer := strings.TrimSpace(line)
+		if !strings.EqualFold(answer, "y") && !strings.EqualFold(answer, "yes") {
+			fmt.Fprintln(env.Stdout, "Cleanup cancelled; nothing was removed.")
+			return nil
+		}
+	}
+	if err := os.RemoveAll(project.DataDir); err != nil {
+		return domain.WrapError(err, "PROJECT_CLEAN_FAILED", "cannot remove Board data directory "+project.DataDir+"; project identity was kept", false)
+	}
+	if err := os.Remove(identityPath); err != nil {
+		return domain.WrapError(err, "PROJECT_CLEAN_FAILED", "Board data was removed, but cannot remove project identity "+identityPath, false)
+	}
+	fmt.Fprintln(env.Stdout, "Project Agent Board data and identity removed.")
+	return nil
 }
 
 type skillTarget struct {

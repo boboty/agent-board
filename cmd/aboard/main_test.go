@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync"
 	"testing"
 
@@ -52,6 +53,13 @@ func newProject(t *testing.T) *project {
 		t.Fatal(err)
 	}
 	p := &project{t: t, home: filepath.Join(base, "home"), repo: filepath.Join(base, "repo")}
+	actualHome, err := os.UserHomeDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if filepath.Clean(p.home) == filepath.Clean(actualHome) || filepath.Clean(p.repo) == filepath.Clean(actualHome) {
+		t.Fatal("clean test must use an isolated HOME and project")
+	}
 	for _, dir := range []string{p.home, p.repo} {
 		if err := os.Mkdir(dir, 0o755); err != nil {
 			t.Fatal(err)
@@ -59,6 +67,191 @@ func newProject(t *testing.T) *project {
 	}
 	p.mustRun(p.repo, "init")
 	return p
+}
+
+func TestCleanConfirmedRemovesOnlyCurrentProject(t *testing.T) {
+	p := newProject(t)
+	otherRepo := filepath.Join(filepath.Dir(p.repo), "other-project")
+	if err := os.Mkdir(otherRepo, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	p.mustRun(otherRepo, "init")
+	identityPath := filepath.Join(p.repo, ".agent-board.json")
+	var identity struct {
+		ProjectID string `json:"project_id"`
+	}
+	identity = decode[struct {
+		ProjectID string `json:"project_id"`
+	}](t, mustRead(t, identityPath))
+	dataDir := filepath.Join(p.home, ".agent-board", identity.ProjectID)
+	otherID := decode[struct {
+		ProjectID string `json:"project_id"`
+	}](t, mustRead(t, filepath.Join(otherRepo, ".agent-board.json"))).ProjectID
+	otherData := filepath.Join(p.home, ".agent-board", otherID)
+	otherDBPath := filepath.Join(otherData, "board.db")
+	otherDBBefore, err := os.ReadFile(otherDBPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(p.home, ".agents", "skills", "keep"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(p.home, ".agents", "skills", "keep", "SKILL.md"), []byte("keep"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(p.repo, "project-file.txt"), []byte("keep"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	r := p.run(p.repo, "clean", "--yes")
+	t.Logf("clean --yes: exit=%d stdout=%q stderr=%q", r.code, r.stdout, r.stderr)
+	if r.code != 0 || !strings.Contains(r.stdout, identityPath) || !strings.Contains(r.stdout, dataDir) {
+		t.Fatalf("clean output: %+v", r)
+	}
+	for _, removed := range []string{identityPath, dataDir} {
+		if _, err := os.Lstat(removed); !os.IsNotExist(err) {
+			t.Fatalf("expected removed path %s, stat err %v", removed, err)
+		}
+	}
+	for _, kept := range []string{otherData, filepath.Join(otherRepo, ".agent-board.json"), filepath.Join(p.home, ".agents", "skills", "keep", "SKILL.md"), filepath.Join(p.repo, "project-file.txt"), binary} {
+		if _, err := os.Stat(kept); err != nil {
+			t.Fatalf("expected retained path %s: %v", kept, err)
+		}
+	}
+	otherDBAfter, err := os.ReadFile(otherDBPath)
+	if err != nil || !bytes.Equal(otherDBAfter, otherDBBefore) {
+		t.Fatalf("other project Board data changed: read err %v", err)
+	}
+	if got := mustRead(t, filepath.Join(p.home, ".agents", "skills", "keep", "SKILL.md")); got != "keep" {
+		t.Fatalf("Skill contents changed: %q", got)
+	}
+	if got := mustRead(t, filepath.Join(p.repo, "project-file.txt")); got != "keep" {
+		t.Fatalf("project file contents changed: %q", got)
+	}
+}
+
+func TestCleanDeclinesByDefaultAndOnNo(t *testing.T) {
+	for _, input := range []string{"", "n\n"} {
+		p := newProject(t)
+		r := p.runWithInput(p.repo, input, "clean")
+		t.Logf("clean input=%q: exit=%d stdout=%q stderr=%q", input, r.code, r.stdout, r.stderr)
+		if r.code != 0 || !strings.Contains(r.stdout, "nothing was removed") {
+			t.Fatalf("clean refusal output: %+v", r)
+		}
+		for _, path := range []string{filepath.Join(p.repo, ".agent-board.json"), filepath.Join(p.home, ".agent-board")} {
+			if _, err := os.Stat(path); err != nil {
+				t.Fatalf("refusal changed %s: %v", path, err)
+			}
+		}
+	}
+}
+
+func TestCleanInteractiveConfirmation(t *testing.T) {
+	p := newProject(t)
+	identityPath := filepath.Join(p.repo, ".agent-board.json")
+	identity := decode[struct {
+		ProjectID string `json:"project_id"`
+	}](t, mustRead(t, identityPath))
+	dataDir := filepath.Join(p.home, ".agent-board", identity.ProjectID)
+	r := p.runWithInput(p.repo, "yes\n", "clean")
+	t.Logf("clean interactive yes: exit=%d stdout=%q stderr=%q", r.code, r.stdout, r.stderr)
+	if r.code != 0 || !strings.Contains(r.stdout, "Project Agent Board data and identity removed.") {
+		t.Fatalf("interactive confirmation output: %+v", r)
+	}
+	for _, path := range []string{identityPath, dataDir} {
+		if _, err := os.Stat(path); !os.IsNotExist(err) {
+			t.Fatalf("expected removed path %s, stat err %v", path, err)
+		}
+	}
+}
+
+func TestCleanIdentityRemovalFailureReportsPartialCleanup(t *testing.T) {
+	p := newProject(t)
+	identityPath := filepath.Join(p.repo, ".agent-board.json")
+	identity := decode[struct {
+		ProjectID string `json:"project_id"`
+	}](t, mustRead(t, identityPath))
+	dataDir := filepath.Join(p.home, ".agent-board", identity.ProjectID)
+	if err := os.Chmod(p.repo, 0o555); err != nil {
+		t.Fatal(err)
+	}
+	r := p.run(p.repo, "clean", "--yes")
+	if err := os.Chmod(p.repo, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Logf("clean identity removal failure: exit=%d stdout=%q stderr=%q", r.code, r.stdout, r.stderr)
+	if r.code != 1 || !strings.Contains(r.stderr, "Board data was removed, but cannot remove project identity") {
+		t.Fatalf("identity failure output: %+v", r)
+	}
+	if _, err := os.Stat(identityPath); err != nil {
+		t.Fatalf("identity missing after failed removal: %v", err)
+	}
+	if _, err := os.Stat(dataDir); !os.IsNotExist(err) {
+		t.Fatalf("data remains after successful data removal, stat err %v", err)
+	}
+}
+
+func TestCleanMissingInvalidIdentityAndDataFailureKeepIdentity(t *testing.T) {
+	p := newProject(t)
+	identityPath := filepath.Join(p.repo, ".agent-board.json")
+	projectID := decode[struct {
+		ProjectID string `json:"project_id"`
+	}](t, mustRead(t, identityPath)).ProjectID
+	dataDir := filepath.Join(p.home, ".agent-board", projectID)
+	if err := os.WriteFile(identityPath, []byte(`{"version":1,"project_id":"bad"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	r := p.run(p.repo, "clean", "--yes")
+	t.Logf("clean invalid identity: exit=%d stdout=%q stderr=%q", r.code, r.stdout, r.stderr)
+	if r.code != 1 || r.errorCode(t) != "INVALID_PROJECT_IDENTITY" {
+		t.Fatalf("invalid identity output: %+v", r)
+	}
+	if _, err := os.Stat(identityPath); err != nil {
+		t.Fatalf("invalid identity was removed: %v", err)
+	}
+	if _, err := os.Stat(dataDir); err != nil {
+		t.Fatalf("data changed for invalid identity: %v", err)
+	}
+	missingRepo := filepath.Join(filepath.Dir(p.repo), "missing")
+	if err := os.Mkdir(missingRepo, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	r = p.run(missingRepo, "clean", "--yes")
+	t.Logf("clean missing identity: exit=%d stdout=%q stderr=%q", r.code, r.stdout, r.stderr)
+	if r.code != 1 || r.errorCode(t) != "PROJECT_NOT_FOUND" {
+		t.Fatalf("missing identity output: %+v", r)
+	}
+	if _, err := os.Stat(dataDir); err != nil {
+		t.Fatalf("data changed for missing identity: %v", err)
+	}
+
+	// Restore a valid identity, then make the data-root path a regular file.
+	if err := os.WriteFile(identityPath, []byte(`{"version":1,"project_id":"01M3VN4DT676SGJ90T58JRB13R"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	dataRoot := filepath.Join(p.home, ".agent-board")
+	if err := os.RemoveAll(dataRoot); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(dataRoot, []byte("block"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	r = p.run(p.repo, "clean", "--yes")
+	t.Logf("clean data removal failure: exit=%d stdout=%q stderr=%q", r.code, r.stdout, r.stderr)
+	if r.code != 1 || !strings.Contains(r.stderr, "project identity was kept") {
+		t.Fatalf("data failure output: %+v", r)
+	}
+	if _, err := os.Stat(identityPath); err != nil {
+		t.Fatalf("identity removed despite data failure: %v", err)
+	}
+}
+
+func mustRead(t *testing.T, path string) string {
+	t.Helper()
+	contents, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(contents)
 }
 
 func (p *project) environ() []string {
@@ -78,9 +271,14 @@ type result struct {
 }
 
 func (p *project) run(dir string, args ...string) result {
+	return p.runWithInput(dir, "", args...)
+}
+
+func (p *project) runWithInput(dir, input string, args ...string) result {
 	cmd := p.command(dir, args...)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
+	cmd.Stdin = strings.NewReader(input)
 	err := cmd.Run()
 	code := 0
 	if exit, ok := err.(*exec.ExitError); ok {
