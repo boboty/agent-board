@@ -161,15 +161,50 @@ aboard skill show management
 aboard skill show workflow
 ```
 
-### Upgrade Skills
+## Upgrade
 
-Regular installation adds missing Skills and preserves installed content that differs. To replace a selected Skill with the version embedded in the current `aboard` binary, use `--force` explicitly:
+After upgrading `aboard`, check the current binary, Skills, and project setup with `doctor`:
+
+```bash
+go install github.com/boboty/agent-board/cmd/aboard@latest
+aboard doctor
+```
+
+If `doctor` reports installed Skill content that differs from the current binary's embedded content, explicitly use `--force` to upgrade the selected Skill:
 
 ```bash
 aboard skill install --force workflow
 ```
 
-Omit `workflow` or `management` to apply `--force` to both Skills.
+Replace `workflow` with `management` to upgrade only the other Skill. Omit the Skill name to upgrade both. Regular `aboard skill install` adds missing Skills and preserves installed content that differs.
+
+## Clean the current project
+
+Run `aboard clean` from the project directory. After confirmation, it removes the project's Board data first, then its `.agent-board.json` identity file:
+
+```bash
+aboard clean
+```
+
+It lists the targets and prompts `[y/N]`; enter `y` or `yes` to confirm. Use `aboard clean --yes` to skip confirmation. This removes only the current project's identity and corresponding Board data. It does not remove the `aboard` binary, Skills, or data for other projects.
+
+## Uninstall
+
+`aboard uninstall` removes Agent Board for the current user on this machine: the `aboard` binary, Agent Board Skills, and local Board data under `~/.agent-board/`. It lists the targets and prompts `[y/N]`; enter `y` or `yes` to confirm. Use `--yes` to skip the overall uninstall confirmation:
+
+```bash
+aboard uninstall
+# skip the overall confirmation
+aboard uninstall --yes
+```
+
+Modified Agent Board Skills are preserved by default. To authorize deleting those modified Skills, add `--force`; this does not skip confirmation:
+
+```bash
+aboard uninstall --force
+```
+
+Unmanaged Skills and content-mismatched legacy Skills are always preserved for manual handling. If anything is preserved or a removal fails, uninstall still attempts to remove local data and the binary, then exits with code `1` and lists the items that need manual handling.
 
 ## CLI, Web, and MCP
 

@@ -161,15 +161,50 @@ aboard skill show management
 aboard skill show workflow
 ```
 
-### 升级 Skill
+## 升级
 
-普通安装会补齐缺少的 Skill，并保留内容不同的已安装版本。确认要用当前 `aboard` 内嵌版本覆盖时，显式使用 `--force`，可只升级一个 Skill：
+升级 `aboard` 后，用 `doctor` 检查当前 binary、Skill 和项目状态：
+
+```bash
+go install github.com/boboty/agent-board/cmd/aboard@latest
+aboard doctor
+```
+
+如果 `doctor` 报告已安装 Skill 与当前 binary 内嵌内容不同，而你要升级到内嵌版本，显式使用 `--force` 覆盖所选 Skill：
 
 ```bash
 aboard skill install --force workflow
 ```
 
-省略 `workflow` 或 `management` selector 时，`--force` 会作用于两个 Skill。
+将 `workflow` 换成 `management` 可只升级另一个 Skill；省略 Skill 名称时，`--force` 会升级两个。普通 `aboard skill install` 会补齐缺少的 Skill，并保留内容不同的已安装版本。
+
+## 清理当前项目
+
+在项目目录运行 `aboard clean`，确认后会先删除该项目对应的 Board 数据，再删除项目身份文件 `.agent-board.json`：
+
+```bash
+aboard clean
+```
+
+默认会列出目标并提示 `[y/N]`；输入 `y` 或 `yes` 确认。使用 `aboard clean --yes` 可跳过确认。它只清理当前项目的身份和对应数据，不会删除 `aboard` binary、Skills 或其他项目的数据。
+
+## 卸载
+
+`aboard uninstall` 用于移除当前用户在这台机器上的 Agent Board：包括 `aboard` binary、Agent Board Skills，以及 `~/.agent-board/` 下的本地 Board 数据。运行前会列出目标并提示 `[y/N]`；输入 `y` 或 `yes` 确认。`--yes` 可跳过整机卸载确认：
+
+```bash
+aboard uninstall
+# 跳过整体确认
+aboard uninstall --yes
+```
+
+内容被改动的 Agent Board Skill 默认保留。确认要删除这些已改动的 Skill 时，可加 `--force`；它只授权删除这些 Skill，不会跳过确认：
+
+```bash
+aboard uninstall --force
+```
+
+非 Agent Board 管理的 Skill 和内容不一致的旧版遗留 Skill 始终保留，需手动处理。有保留项或删除失败时，卸载仍会尝试移除本地数据和 binary，最后以退出码 `1` 报告未完整卸载，并列出需手动处理的项目。
 
 ## CLI、Web、MCP
 
