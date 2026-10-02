@@ -63,6 +63,58 @@ aboard web
 
 `aboard web` 默认监听 `127.0.0.1` 的一个空闲端口，并输出实际 URL，因此多个项目可以同时打开 Web Board。
 
+## 第一次真实使用：从想法到执行
+
+安装和 `aboard web` 只是把 Board 准备好。真正开始使用时，不需要先学一套复杂命令：让管理端 Harness 负责把想法变成 Task，让执行端 Orchestrator 消费 READY 即可。
+
+### 1. 在 Codex 中把想法变成 Task
+
+在已经初始化 Agent Board 的项目目录中打开 Codex，直接用自然语言描述需求。例如：
+
+> `aboard --help` 的 Skills 区域中英文风格不一致。请把这个想法整理成一个 Board Task，先不要入队，也不要开始实现。
+
+如果 `agent-board-management` 已安装，Codex 会读取当前项目的 Board 和任务语境，把需求整理成一个**未入队 Task**。你可以在 Web Board 中查看、修改和确认它。
+
+确认 Task 已经足够清楚后，可以继续对 Codex 说：
+
+> 这个 Task 我接受了，排到 READY 末尾。
+
+也可以直接在 Web Board 中手动入队。进入 READY 只表示“可以执行”，不会自动开始实现。
+
+### 2. 让 Paseo 开始消费 READY
+
+在同一项目中新开一个 Paseo Orchestrator 会话，使用一条很短的启动指令：
+
+> 从当前项目 Agent Board 读取并执行 READY Tasks，遵循 `agent-board-workflow`。使用 Paseo 已配置的 Agent Profiles。持续处理直到 READY 队列为空，或遇到需要 Human 裁决的事项时停止并报告。
+
+Paseo 会从 Board 读取最新 Task，并按 Workflow Skill 协调 Developer 与 fresh Independent Verifier。Agent Board 不要求使用 Paseo；任何能够读取 Board 并遵循 Workflow Skill 的本地 Orchestrator 都可以消费 READY。
+
+如果你希望正常 happy path 连 Git 收尾也一起自动完成，可以在启动指令后追加本轮授权：
+
+> 如果任务完成并验收通过，自动合入 main、push origin/main，push 成功后清理对应的本地 worktree 和分支；遇到冲突或异常时停止并报告。
+
+这类 merge / push 授权属于**本次运行策略**，不写进 Task，也不改变 Board 语义。
+
+### 3. 之后的日常使用
+
+```text
+讨论想法
+  ↓
+Codex / Claude Code + Management Skill
+  ↓
+未入队 Task
+  ↓ Human 接受
+READY
+  ↓
+Paseo / Orca / 其他 Orchestrator + Workflow Skill
+  ↓
+Developer → Independent Verifier
+  ↓
+DONE
+```
+
+之后你通常只需要管理想法、Task 和优先级；执行器负责消费 READY，只有遇到需要 Human 裁决的情况才回来找你。
+
 ## 核心模型
 
 Agent Board 的 Task 只有四种显式状态：
