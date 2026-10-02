@@ -2,280 +2,95 @@
 
 [中文](README.md) | [English](README_EN.md)
 
-**Take AI development tasks out of chat history.**
+**“Done” isn’t enough. An independent verifier should say PASS.**
 
-If you have started giving Codex, Claude Code, OpenCode, or other agents a stream of development work, you have probably seen the same failure mode:
+A local-first task board for Claude Code / Codex / OpenCode: queue work, let one agent implement it, let another independently verify it, and keep an auditable trail. You come back only when a human decision is needed.
 
-- the todo list looks good, then drifts away from reality;
-- a new session needs the whole “where are we?” story again;
-- a Developer says it is done, and you still have to chase verification;
-- two agents run in parallel and nobody has a reliable shared view;
-- the expensive part stops being coding and becomes supervision.
+![Agent Board](docs/images/board.webp)
 
-Agent Board does one simple thing: **put Tasks, state, delivery, and verification into a shared Board.**
+- **Stop babysitting progress**: task state, delivery, and verification live on the Board across sessions and worktrees
+- **Verification leaves evidence**: DONE shows who delivered, who independently verified, and what was checked
+- **Bring your own tools**: CLI / MCP / Web operate the same Board; management and execution can come from different harnesses
+- **Local-first**: one binary + SQLite, with no account, service, or database server to deploy
 
-You keep discussing ideas in the AI tool you already use. Once an idea is clear, turn it into a Task. When it enters READY, the execution layer can implement, verify, and close it. You come back when a decision is actually needed.
+## What a complete run looks like
 
-> The goal is not another board to maintain. The goal is fewer agents to babysit.
+Suppose you are building `shop-api` and find a bug: stacking a discount coupon with a promotion charges too much.
 
-## See how it feels
+**1. Say one thing in Claude Code / Codex**
 
-Suppose you notice this in a project:
+> Turn this bug into a Board Task with clear acceptance criteria. Do not start implementation yet.
 
-> The Skills section of `aboard --help` mixes Chinese and English.
+The Task appears unqueued. Review it, then queue it into READY.
 
-You do not need to hand-write a task card or switch into a special execution UI.
+**2. Let the execution side work**
 
-### 1. Say one thing in Codex
+> Execute the READY queue following `agent-board-workflow`. Stop and report when a Human decision is required.
 
-> Turn this idea into a Board Task. Do not queue it yet and do not start implementation.
+Developer implements → a **fresh, independent session/instance** acts as Verifier → PASS → accepted commit → DONE.
 
-Codex can turn it into an unqueued Task. Review it in the Web Board, and when it looks right, say:
+**3. Come back to results, not the middle**
 
-> I accept this Task. Queue it at the end of READY.
+![Task detail: delivery, independent verification, and audit history](docs/images/task-detail.webp)
 
-You can also queue it manually in the Web Board.
+- the coupon Task records Developer delivery, Independent Verifier PASS, and the verification evidence
+- the Redis migration is BLOCKED because a Human must confirm the downtime window — that is where your attention belongs
 
-### 2. Let Paseo do the work
+You keep three jobs: **what to do, what comes first, and what requires judgment.**
 
-Start Paseo in the same project and tell it:
+## Compared with what you may use today
 
-> Read and execute READY Tasks from the current project's Agent Board, following `agent-board-workflow`. Use the configured Paseo Agent Profiles. Continue until the READY queue is empty or a Human decision is required.
-
-Then stop watching it.
-
-Paseo reads READY, assigns a Developer, and starts a fresh Independent Verifier after delivery. After PASS, the Orchestrator packages the verified workspace into the accepted commit.
-
-If you also want normal Git cleanup to happen automatically, add:
-
-> When a Task is complete and verified, merge it into main, push origin/main, and clean up the corresponding local worktree and branch after the push succeeds. Stop and report on conflicts or unexpected conditions.
-
-### 3. You see the result
-
-```text
-Idea
- ↓
-Task
- ↓
-READY
- ↓
-Implementation + independent verification
- ↓
-DONE
-```
-
-Most of the time, your job becomes deciding **what to do, what comes first, and what requires judgment**.
-
-Which agent writes the code, which agent verifies it, and which worktree it runs in can stay in the execution layer.
+| | TODO.md / PROGRESS.md | Agent built-in todo | Issues / Linear | **Agent Board** |
+|---|---|---|---|---|
+| Shared across sessions / worktrees | Needs conventions; easy to fork | Usually scoped to one session or harness | ✓ | ✓ |
+| Source of task state | File contents | Harness / session internal state | Explicit fields or automation | Explicit records with actor + version |
+| Evidence behind “done” | You define it yourself | Usually no independent verification trail | Depends on comments / automation | Delivery + independent verification facts |
+| Direct agent access | Yes, but concurrent edits can conflict | Usually current harness only | Requires API / auth | CLI / MCP with optimistic versioning |
+| Deployment | None | None | Account / network / service | Local binary + SQLite |
 
 ## Start in 5 minutes
 
 Requirement: **Go 1.25+**.
 
-Install:
-
 ```bash
 go install github.com/boboty/agent-board/cmd/aboard@latest
 aboard skill install
-```
 
-If `aboard` is not on PATH:
-
-```bash
-export PATH="$(go env GOPATH)/bin:$PATH"
-```
-
-Initialize your project:
-
-```bash
 cd your-project
 aboard init
 aboard doctor
 aboard web
 ```
 
-`aboard init` creates a version 2 `.agent-board.json`, using the project root directory name by default. Set an explicit name with `aboard init --name "Project Name"`. Commit the file so every worktree and process for the same project displays the same name and resolves to the same Board. Ordinary `aboard doctor` is read-only; migrate an older identity explicitly with `aboard doctor --fix [--name "Project Name"]`.
+`aboard init` creates `.agent-board.json`; commit it to the repository. Then go back to your AI tool and say something like “turn XX into a Board Task.”
 
-`aboard web` automatically chooses a free `127.0.0.1` port and prints the URL. Multiple projects can keep their own Boards open at the same time.
+**Choose an execution setup**
 
-Then go back to Codex, Claude Code, or another local harness and start creating Tasks in natural language.
+- **One Claude Code / Codex is enough**: Agent Board still works; keep Developer and Verifier in separate, independent sessions/instances
+- **Background execution or parallel Tasks**: an Orchestrator such as [Paseo](https://github.com/getpaseo/paseo) can consume READY and assign a Developer plus Independent Verifier
 
-## What everyday use looks like
-
-Think of Agent Board as a shared task ledger for AI-assisted development:
-
-```text
-Codex / Claude Code / OpenCode
-        ↓
-   create and manage Tasks
-        ↓
-     Agent Board
-        ↓
- Paseo / Orca / another Orchestrator
-        ↓
- Developer + Independent Verifier
-```
-
-The management side and execution side can use the same harness or completely different ones.
-
-A single Codex setup is enough. With a dedicated Orchestrator such as Paseo or Orca, execution can move further into the background. Independent Tasks can also run in parallel.
+If you want merge / push automated as well, authorize that explicitly for the run; otherwise stop at the verified delivery boundary.
 
 ## You keep control
 
-Agent Board does not start development just because a Task exists.
+- Creating a Task does not start work; READY is the explicit execution boundary
+- Unclear semantics, conflicts, and unexpected conditions come back to a Human and can be recorded as BLOCKED
+- merge / push automation is authorized per run
 
-- a Task can remain an unqueued draft;
-- READY means you have accepted that it may execute;
-- unclear product semantics, conflicts, and unexpected conditions should come back to a Human;
-- merge / push automation is authorized per run.
+Agent Board is not about removing Humans from software development. It is about removing Humans from **babysitting the middle**.
 
-The point is not to remove the Human from development. It is to remove the Human from **babysitting the middle**.
+## What it deliberately does not do
 
-## What you see on the Board
+No model routing. No agent runtime. No agent scheduling. No requirement to replace your IDE or harness. It does one thing:
 
-The Web Board has four current states:
+> **provide a stable, shared, auditable handoff surface between task management and task execution.**
 
-- `READY` — safe to execute
-- `IN_PROGRESS` — being worked on
-- `DONE` — completed
-- `BLOCKED` — waiting for resolution
+## More
 
-Unqueued Tasks are shown separately instead of pretending to be a fifth lifecycle state.
-
-Each Task exposes its content, execution facts, delivery, verification, and audit history. The home page keeps DONE bounded to recent completions, with full paginated history available separately.
-
-## Two Skills, one job each
-
-`aboard skill install` installs two independent Skills:
-
-- **`agent-board-management`** — turn ideas into Tasks, edit them, queue them, and manage priority;
-- **`agent-board-workflow`** — tell the execution layer how to coordinate, verify, and deliver work.
-
-You do not need to memorize their rules. In Skill-aware harnesses such as Codex or Claude Code, natural-language use is the normal path.
-
-To inspect them:
-
-```bash
-aboard skill check
-aboard skill show management
-aboard skill show workflow
-```
-
-## Upgrade
-
-After upgrading `aboard`, check the current binary, Skills, and project setup with `doctor`:
-
-```bash
-go install github.com/boboty/agent-board/cmd/aboard@latest
-aboard doctor
-```
-
-If `doctor` reports installed Skill content that differs from the current binary's embedded content, explicitly use `--force` to upgrade the selected Skill:
-
-```bash
-aboard skill install --force workflow
-```
-
-Replace `workflow` with `management` to upgrade only the other Skill. Omit the Skill name to upgrade both. Regular `aboard skill install` adds missing Skills and preserves installed content that differs.
-
-## Clean the current project
-
-Run `aboard clean` from the project directory. After confirmation, it removes the project's Board data first, then its `.agent-board.json` identity file:
-
-```bash
-aboard clean
-```
-
-It lists the targets and prompts `[y/N]`; enter `y` or `yes` to confirm. Use `aboard clean --yes` to skip confirmation. This removes only the current project's identity and corresponding Board data. It does not remove the `aboard` binary, Skills, or data for other projects.
-
-## Uninstall
-
-`aboard uninstall` removes Agent Board for the current user on this machine: the `aboard` binary, Agent Board Skills, and local Board data under `~/.agent-board/`. It lists the targets and prompts `[y/N]`; enter `y` or `yes` to confirm. Use `--yes` to skip the overall uninstall confirmation:
-
-```bash
-aboard uninstall
-# skip the overall confirmation
-aboard uninstall --yes
-```
-
-Modified Agent Board Skills are preserved by default. To authorize deleting those modified Skills, add `--force`; this does not skip confirmation:
-
-```bash
-aboard uninstall --force
-```
-
-Unmanaged Skills and content-mismatched legacy Skills are always preserved for manual handling. If anything is preserved or a removal fails, uninstall still attempts to remove local data and the binary, then exits with code `1` and lists the items that need manual handling.
-
-## CLI, Web, and MCP
-
-You can use the Web Board directly, or let agents operate the same Board through CLI or MCP.
-
-CLI write commands require an actor audit label. Pass `--actor human/yan` to a command, or set the default with `export AGENT_BOARD_ACTOR=human/yan`.
-
-Common commands:
-
-```bash
-aboard board
-aboard task list
-aboard ready list
-aboard history 12
-aboard doctor
-```
-
-MCP is optional, not a prerequisite:
-
-```bash
-aboard mcp config claude-code
-aboard mcp config codex
-aboard mcp config opencode
-```
-
-## Local-first
-
-No account, service deployment, or separate database server is required.
-
-Board data lives at:
-
-```text
-~/.agent-board/<project_id>/board.db
-```
-
-The repository only needs the `.agent-board.json` project identity file.
-
-## It does not want to become another giant platform
-
-Agent Board does not own model routing or agent runtime, and it does not require you to replace your IDE, harness, or existing development workflow.
-
-It solves one problem:
-
-> **give task management and task execution a stable, shared, auditable handoff surface.**
-
-Cloud sync, team services, desktop clients, and remote execution can be added by other pieces later. The core Board does not need to grow into a platform.
-
-## More docs
-
+- [Everyday use: CLI / MCP / the two Skills](docs/usage_EN.md)
+- [Upgrade, migrate, clean, uninstall](docs/operations_EN.md)
 - [PRODUCT.md](PRODUCT.md) — product definition and boundaries
 - [ARCHITECTURE.md](ARCHITECTURE.md) — architecture and persistence
-- [management/SKILL.md](management/SKILL.md) — Board Management Skill
-- [workflow/SKILL.md](workflow/SKILL.md) — Workflow Skill
-- [AGENTS.md](AGENTS.md) — repository agent instructions
+- [Development from source](docs/development.md)
 
-## Development from source
-
-Normal users do not need to clone the repository. For development:
-
-```bash
-git clone https://github.com/boboty/agent-board.git
-cd agent-board
-go build -o aboard ./cmd/aboard
-```
-
-Real-browser e2e tests live in a separate module:
-
-```bash
-cd e2e && go test ./...
-```
-
-## License
-
-Apache-2.0.
+Apache-2.0
