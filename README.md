@@ -36,25 +36,26 @@ See:
 ## Usage
 
 ```bash
-go build -o agent-board ./cmd/agent-board
+go build -o aboard ./cmd/aboard
 ```
 
 The Board database lives outside the repository, at
 `~/.agent-board/<project_id>/board.db` on every platform. The committed
 `.agent-board.json` carries the project ID, so every worktree and process of
-the repository opens the same database. Run `agent-board init` once for a new repository and commit the
-identity file; `agent-board check` shows what a directory resolves to.
+the repository opens the same database. Run `aboard init` once for a new
+repository and commit the identity file; `aboard check` shows what a directory
+resolves to.
 
 ### MCP
 
-`agent-board mcp` discovers the project from its working directory and serves
-the Board over stdio. `agent-board mcp config` prints a generic stdio launch
+`aboard mcp` discovers the project from its working directory and serves
+the Board over stdio. `aboard mcp config` prints a generic stdio launch
 configuration; pass `claude-code`, `codex`, or `opencode` to print a
 Harness-specific snippet. For example:
 
 ```json
 {
-  "command": "/absolute/path/to/agent-board",
+  "command": "/absolute/path/to/aboard",
   "args": ["mcp"]
 }
 ```
@@ -74,13 +75,13 @@ Tools: `create_task`, `get_task`, `list_tasks`, `update_task`, `queue_task`,
 
 ### CLI
 
-Run `agent-board help` for the command list. CLI operation results are JSON on
+Run `aboard help` for the command list. CLI operation results are JSON on
 stdout; errors are `{"error": {...}}` on stderr with exit status 1 (Board or
-storage error) or 2 (usage error). `agent-board call <operation> '<json>'`
+storage error) or 2 (usage error). `aboard call <operation> '<json>'`
 invokes any operation through the same dispatch as MCP `tools/call`. The
 default actor is `$AGENT_BOARD_ACTOR`, overridden by `--actor`.
 
-`agent-board doctor` prints human-readable status for the binary/version,
+`aboard doctor` prints human-readable status for the binary/version,
 Workflow Skill, project identity, Board database file, and MCP operation
 catalog. Exit status 0 means no problem was detected by these checks, 1 means
 a component needs attention, and 2 means invalid usage. It is read-only: it
@@ -95,13 +96,13 @@ open the database and run migrations when full validation is needed.
 ### Workflow Skill
 
 `workflow/SKILL.md` is the canonical Skill source and is embedded in the
-`agent-board` binary. A binary can install or display it without access to the
+`aboard` binary. A binary can install or display it without access to the
 source repository:
 
 ```bash
-agent-board skill install
-agent-board skill check
-agent-board skill show
+aboard skill install
+aboard skill check
+aboard skill show
 ```
 
 Install writes the same embedded content to Claude Code
@@ -114,7 +115,7 @@ JSON status (`missing`, `current`, or `different`) and paths for all three;
 
 ### Web Board
 
-`agent-board web` serves a browser Board for people on a loopback address
+`aboard web` serves a browser Board for people on a loopback address
 (default `127.0.0.1:7420`; `--addr 127.0.0.1:0` picks a free port) and prints
 its URL as JSON. Four columns — READY, IN PROGRESS, DONE, BLOCKED — come
 directly from each task's recorded `state`; unqueued tasks are listed

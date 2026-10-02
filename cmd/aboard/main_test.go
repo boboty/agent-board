@@ -24,12 +24,12 @@ var binary string
 // TestMain builds the real binary so these tests exercise separate OS
 // processes sharing one database, as harnesses in different worktrees do.
 func TestMain(m *testing.M) {
-	dir, err := os.MkdirTemp("", "agent-board-bin-")
+	dir, err := os.MkdirTemp("", "aboard-bin-")
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
-	binary = filepath.Join(dir, "agent-board")
+	binary = filepath.Join(dir, "aboard")
 	if out, err := exec.Command("go", "build", "-o", binary, ".").CombinedOutput(); err != nil {
 		fmt.Fprintf(os.Stderr, "build: %v\n%s", err, out)
 		os.Exit(1)

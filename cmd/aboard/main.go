@@ -1,4 +1,4 @@
-// Command agent-board is the Agent Board CLI and MCP server.
+// Command aboard is the Agent Board CLI and MCP server.
 package main
 
 import (

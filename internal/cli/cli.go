@@ -56,7 +56,7 @@ const (
 // CodeUsage identifies a malformed command line.
 const CodeUsage = "USAGE"
 
-const usage = `usage: agent-board <command> [flags]
+const usage = `usage: aboard <command> [flags]
 
 Project:
   init                         create .agent-board.json here and the shared Board database
@@ -122,7 +122,7 @@ func Run(ctx context.Context, args []string, env Env) int {
 	}
 	var usageErr usageError
 	if errors.As(err, &usageErr) {
-		writeError(env.Stderr, domain.NewError(CodeUsage, usageErr.message+" (run agent-board help)", false))
+		writeError(env.Stderr, domain.NewError(CodeUsage, usageErr.message+" (run aboard help)", false))
 		return ExitUsage
 	}
 	var healthErr doctorHealthError
@@ -333,7 +333,7 @@ func (c *command) parse(args []string, minArgs, maxArgs int) ([]string, error) {
 	for {
 		if err := c.flags.Parse(args); err != nil {
 			if errors.Is(err, flag.ErrHelp) {
-				fmt.Fprintf(c.env.Stdout, "usage: agent-board %s\n", c.name)
+				fmt.Fprintf(c.env.Stdout, "usage: aboard %s\n", c.name)
 				c.flags.SetOutput(c.env.Stdout)
 				c.flags.PrintDefaults()
 				return nil, err
@@ -503,7 +503,7 @@ func runDoctor(ctx context.Context, args []string, env Env) error {
 				detail = fmt.Sprintf("仅 %d/3 Harness 安装了当前 Skill", current)
 			}
 			detail += "; " + strings.Join(harnessStates, ", ")
-			next = "运行 `agent-board skill install` 安装或更新三个受支持 Harness 的 Skill。"
+			next = "运行 `aboard skill install` 安装或更新三个受支持 Harness 的 Skill。"
 		}
 		lines = append(lines, doctorLine{"Skill", status, detail, next})
 	}
@@ -514,7 +514,7 @@ func runDoctor(ctx context.Context, args []string, env Env) error {
 	case projectErr == nil:
 		lines = append(lines, doctorLine{"Project", "OK", fmt.Sprintf("%s (project_id %s)", project.Root, project.Identity.ProjectID), ""})
 	case domain.IsCode(projectErr, projectconfig.CodeProjectNotFound):
-		lines = append(lines, doctorLine{"Project", "MISSING", "未找到 .agent-board.json（当前目录及其父目录均未初始化）", "在项目根目录运行 `agent-board init`。"})
+		lines = append(lines, doctorLine{"Project", "MISSING", "未找到 .agent-board.json（当前目录及其父目录均未初始化）", "在项目根目录运行 `aboard init`。"})
 		healthy = false
 	default:
 		lines = append(lines, doctorLine{"Project", "PROBLEM", projectErr.Error(), "检查 .agent-board.json 内容、文件类型和读取权限。"})
@@ -526,7 +526,7 @@ func runDoctor(ctx context.Context, args []string, env Env) error {
 			lines = append(lines, doctorLine{"Board", "PROBLEM", "无法解析数据库路径: " + locateErr.Error(), "检查 HOME 和 Agent Board 数据目录配置。"})
 			healthy = false
 		} else if info, statErr := os.Stat(located.DatabasePath); errors.Is(statErr, os.ErrNotExist) {
-			lines = append(lines, doctorLine{"Board", "MISSING", located.DatabasePath, "数据库尚未创建；运行 `agent-board board` 会按正常应用行为初始化它。"})
+			lines = append(lines, doctorLine{"Board", "MISSING", located.DatabasePath, "数据库尚未创建；运行 `aboard board` 会按正常应用行为初始化它。"})
 			healthy = false
 		} else if statErr != nil {
 			lines = append(lines, doctorLine{"Board", "PROBLEM", located.DatabasePath + ": " + statErr.Error(), "检查数据库路径及其父目录的访问权限。"})
@@ -549,7 +549,7 @@ func runDoctor(ctx context.Context, args []string, env Env) error {
 		}
 	} else {
 		if domain.IsCode(projectErr, projectconfig.CodeProjectNotFound) {
-			lines = append(lines, doctorLine{"Board", "MISSING", "没有项目 identity，因此无法解析 Board 数据库路径", "先在项目根目录运行 `agent-board init`。"})
+			lines = append(lines, doctorLine{"Board", "MISSING", "没有项目 identity，因此无法解析 Board 数据库路径", "先在项目根目录运行 `aboard init`。"})
 		} else {
 			lines = append(lines, doctorLine{"Board", "PROBLEM", "项目 identity 不可用，无法解析 Board 数据库路径", "先修复 Project 项报告的 .agent-board.json 问题。"})
 		}
@@ -570,7 +570,7 @@ func runDoctor(ctx context.Context, args []string, env Env) error {
 		_ = mcpserver.New(nil, mcpserver.Info{Version: env.Version})
 		lines = append(lines, doctorLine{"MCP", "OK", fmt.Sprintf("%d operations and schemas loaded", len(operations)), ""})
 	} else {
-		lines = append(lines, doctorLine{"MCP", "PROBLEM", "operation registry or input schema is unavailable", "重新构建或重新安装 agent-board binary。"})
+		lines = append(lines, doctorLine{"MCP", "PROBLEM", "operation registry or input schema is unavailable", "重新构建或重新安装 aboard binary。"})
 		healthy = false
 	}
 

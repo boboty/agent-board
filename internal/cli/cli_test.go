@@ -230,7 +230,7 @@ func TestDoctorOutsideProjectAndWithMissingSkill(t *testing.T) {
 	if code != ExitError || stderr != "" {
 		t.Fatalf("doctor exit %d stdout %q stderr %q", code, output, stderr)
 	}
-	for _, want := range []string{"Binary   OK", "Skill    MISSING", "Project  MISSING", "Board    MISSING", "MCP      OK", "agent-board init", "agent-board skill install"} {
+	for _, want := range []string{"Binary   OK", "Skill    MISSING", "Project  MISSING", "Board    MISSING", "MCP      OK", "aboard init", "aboard skill install"} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("doctor output %q does not contain %q", output, want)
 		}
@@ -253,9 +253,9 @@ func TestMCPConfigCommands(t *testing.T) {
 		contains string
 	}{
 		{"generic", `"args": [`},
-		{"claude-code", `claude mcp add --transport stdio --scope user agent-board -- '`},
-		{"codex", `[mcp_servers.agent-board]`},
-		{"opencode", `"type": "local"`},
+		{"claude-code", `claude mcp add --transport stdio --scope user aboard -- '`},
+		{"codex", `[mcp_servers.aboard]`},
+		{"opencode", `"aboard": {`},
 	}
 	for _, check := range checks {
 		got := h.ok("mcp", "config", check.harness)
@@ -269,7 +269,7 @@ func TestMCPConfigCommands(t *testing.T) {
 	}
 	h.fails(ExitUsage, CodeUsage, "mcp", "config", "unknown")
 	h.fails(ExitUsage, CodeUsage, "mcp", "config", "codex", "extra")
-	h.env.ExecutablePath = func() (string, error) { return "relative/agent-board", nil }
+	h.env.ExecutablePath = func() (string, error) { return "relative/aboard", nil }
 	h.fails(ExitError, "INTERNAL", "mcp", "config")
 }
 
@@ -392,7 +392,7 @@ func TestErrorsKeepTheirCodes(t *testing.T) {
 	h.fails(ExitUsage, CodeUsage, "task", "create", "--bogus")
 	h.fails(ExitUsage, CodeUsage)
 
-	if code, stdout, _ := h.run("", "help"); code != ExitOK || !strings.Contains(stdout, "agent-board") {
+	if code, stdout, _ := h.run("", "help"); code != ExitOK || !strings.Contains(stdout, "aboard") {
 		t.Fatalf("help exit %d", code)
 	}
 }
@@ -479,7 +479,7 @@ func TestAdaptersDoNotTouchStorage(t *testing.T) {
 		"github.com/boboty/agent-board/internal/sqlite",
 		"github.com/boboty/agent-board/migrations",
 	}
-	for _, dir := range []string{".", "../mcpserver", "../ops", "../web", "../../cmd/agent-board"} {
+	for _, dir := range []string{".", "../mcpserver", "../ops", "../web", "../../cmd/aboard"} {
 		files, err := filepath.Glob(filepath.Join(dir, "*.go"))
 		if err != nil {
 			t.Fatal(err)

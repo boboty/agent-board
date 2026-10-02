@@ -1,4 +1,4 @@
-// Package e2e drives the real agent-board binary with a real browser
+// Package e2e drives the real aboard binary with a real browser
 // (headless Chrome over the DevTools protocol). It is a separate module so
 // the browser driver stays out of the product's dependencies.
 //
@@ -43,9 +43,9 @@ func (b *board) cli(args ...string) string {
 	if err != nil {
 		var exitErr *exec.ExitError
 		if errors.As(err, &exitErr) {
-			b.t.Fatalf("agent-board %v: %v: %s", args, err, exitErr.Stderr)
+			b.t.Fatalf("aboard %v: %v: %s", args, err, exitErr.Stderr)
 		}
-		b.t.Fatalf("agent-board %v: %v", args, err)
+		b.t.Fatalf("aboard %v: %v", args, err)
 	}
 	return string(out)
 }
@@ -88,8 +88,8 @@ func startBoard(t *testing.T) *board {
 		t.Fatal(err)
 	}
 	tmp := t.TempDir()
-	b := &board{t: t, bin: filepath.Join(tmp, "agent-board"), project: filepath.Join(tmp, "repo")}
-	build := exec.Command("go", "build", "-o", b.bin, "./cmd/agent-board")
+	b := &board{t: t, bin: filepath.Join(tmp, "aboard"), project: filepath.Join(tmp, "repo")}
+	build := exec.Command("go", "build", "-o", b.bin, "./cmd/aboard")
 	build.Dir = root
 	if out, err := build.CombinedOutput(); err != nil {
 		t.Fatalf("build: %v\n%s", err, out)

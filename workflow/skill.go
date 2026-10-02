@@ -1,5 +1,5 @@
 // Package workflow exposes the canonical Workflow Skill embedded in the
-// agent-board binary.
+// aboard binary.
 package workflow
 
 import _ "embed"

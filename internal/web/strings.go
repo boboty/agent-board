@@ -140,7 +140,7 @@ var zhCN = UIStrings{
 		domain.EventReadyReordered: "调整 READY 排序",
 		domain.EventFactRecorded:   "记录事实",
 	},
-	EventsLimit: "仅显示最早的 1000 条事件，完整历史请用 CLI：agent-board events --task",
+	EventsLimit: "仅显示最早的 1000 条事件，完整历史请用 CLI：aboard events --task",
 	EventTime:   "时间",
 	EventType:   "事件",
 	EventActor:  "操作者",

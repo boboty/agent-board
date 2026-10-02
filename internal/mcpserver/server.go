@@ -22,7 +22,7 @@ type Info struct {
 // New builds an MCP server with one tool per Board operation.
 func New(service *ops.Service, info Info) *mcp.Server {
 	server := mcp.NewServer(
-		&mcp.Implementation{Name: "agent-board", Version: info.Version},
+		&mcp.Implementation{Name: "aboard", Version: info.Version},
 		&mcp.ServerOptions{Instructions: instructions(info)},
 	)
 	closedWorld := false
