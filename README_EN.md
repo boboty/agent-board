@@ -63,6 +63,58 @@ aboard web
 
 `aboard web` listens on a free loopback port by default and prints the actual URL, so multiple project Boards can run at the same time.
 
+## First real workflow: from idea to execution
+
+Installation and `aboard web` only prepare the Board. To start using it, you do not need to learn a large command surface: let a management-side harness turn ideas into Tasks, then let an execution-side Orchestrator consume READY.
+
+### 1. Turn an idea into a Task in Codex
+
+Open Codex in a project that has already been initialized with Agent Board and describe the work in natural language. For example:
+
+> The Skills section of `aboard --help` mixes Chinese and English. Turn this idea into a Board Task, but do not queue it and do not start implementation.
+
+If `agent-board-management` is installed, Codex can read the current Board context and turn the request into an **unqueued Task**. You can review or edit it in the Web Board.
+
+Once the Task is clear enough, tell Codex:
+
+> I accept this Task. Queue it at the end of READY.
+
+You can also queue it manually from the Web Board. READY means “safe to execute”; queueing does not start implementation by itself.
+
+### 2. Let Paseo consume READY
+
+Open a new Paseo Orchestrator session in the same project and use a short startup instruction:
+
+> Read and execute READY Tasks from the current project's Agent Board, following `agent-board-workflow`. Use the configured Paseo Agent Profiles. Continue until the READY queue is empty or a Human decision is required.
+
+Paseo reads the latest Task state from the Board and uses the Workflow Skill to coordinate Developer and a fresh Independent Verifier. Paseo is not required; any local Orchestrator that can read the Board and follow the Workflow Skill can consume READY.
+
+If you want the normal happy path to include Git integration and cleanup, add explicit authorization for that run:
+
+> When a Task is complete and verified, merge it into main, push origin/main, and clean up the corresponding local worktree and branch after the push succeeds. Stop and report on conflicts or unexpected conditions.
+
+Merge / push authorization is **run-time execution strategy**. It does not belong in the Task and does not change Board semantics.
+
+### 3. Everyday use after that
+
+```text
+Discuss an idea
+  ↓
+Codex / Claude Code + Management Skill
+  ↓
+unqueued Task
+  ↓ Human accepts
+READY
+  ↓
+Paseo / Orca / another Orchestrator + Workflow Skill
+  ↓
+Developer → Independent Verifier
+  ↓
+DONE
+```
+
+In normal use, you mostly manage ideas, Tasks, and priority. The execution layer consumes READY and only comes back when a Human decision is actually needed.
+
 ## Core model
 
 A Task has exactly four explicit states:
