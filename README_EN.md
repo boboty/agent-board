@@ -2,81 +2,75 @@
 
 [中文](README.md) | [English](README_EN.md)
 
-**AI work should leave more than an output. It should leave an evidence trail that explains why the output can be accepted.**
+**A work protocol for accountable AI software delivery.**
 
-Agent Board is a local-first reference implementation of an **AI work handoff and verification discipline**. It keeps tasks, execution facts, delivery evidence, independent verification, and human decisions in an external persistent ledger so work can move reliably across agents, sessions, harnesses, and worktrees.
+Every meaningful piece of delegated agent work should have a clear owner, an evidence-backed delivery, an independent verification, and a record of why it was accepted.
+
+Agent Board is first a **work discipline for AI-assisted software development**: it defines what deserves to become a Task, who is responsible for implementation, what counts as delivery, who may verify it, and how interruption, rework, and human decisions stay on the record.
+
+The discipline is encoded as a harness-independent Workflow Skill. `aboard` is its local reference implementation, giving different agents, sessions, harnesses, and worktrees the same source of truth.
+
+## The problem isn't intelligence
+
+Models are getting better at planning, decomposition, self-checking, and managing their own context. Those internal steps can stay inside Codex, Claude Code, OpenCode, or any other harness.
+
+Once several agents work across sessions, worktrees, and tools, the hard questions become different:
+
+- What exactly is the work, and what counts as complete?
+- Who is working on it now, and who can take over after an interruption?
+- The agent says it is done. What evidence makes that acceptable?
+- Should the agent that wrote the code be allowed to approve it?
+- After RC, what changed and who verified the new delivery?
+- Two weeks later, what was delivered, who checked it, and why was it accepted?
+
+Better models do not make these questions disappear. They are problems of **coordination, handoff, verification, and accountability**.
+
+Human engineering teams use tickets, review, sign-off, and audit trails for the same reason. Agent teams need a written discipline that agents themselves can follow.
+
+## The rules
+
+1. **One independently delegable unit of work, one Task.** Only work that can be independently scheduled, verified, and handed off belongs on the Board. Developer todos, plans, sub-steps, and subagent decomposition stay inside the harness.
+2. **Define the boundary before authorizing execution.** A Task needs a clear goal, scope, and checkable acceptance criteria. Creating it does not start work; entering `READY` is the execution boundary. A Task workspace has at most one current Developer at a time.
+3. **Done means evidence.** A delivery records what changed, its baseline, checks performed and raw results, what was not verified and why, plus known limitations.
+4. **Separation of duties.** The Developer may self-check, but never declares PASS. Every formal verification round uses a new, independent Verifier session/instance and ends in `PASS`, `RC`, or `BLOCKED`.
+5. **Rework stays with the Task.** RC returns to the same Task and delivery boundary. A correction produces a new delivery and a new Independent Verifier re-verifies the whole Task. Delivery, verification, and handoff facts are append-only.
+6. **Shared state does not live in one agent's memory.** On interruption or takeover, recover from the Task and Board facts, Workspace / Git, and agent activity. A handoff fact supplements missing context; it does not create another `PROGRESS.md`.
+
+The Human keeps authority over product intent, READY priority, and outward or irreversible actions such as push, merge, and release. The Orchestrator coordinates but does not implement or verify. The Developer is the implementation writer. The Independent Verifier is read-only.
+
+> **Agents manage their internal steps. The protocol governs only the responsibilities, evidence, and decisions that must survive across executors.**
+
+## Reference implementation: `aboard`
+
+Agent Board turns those rules into an external, persistent, auditable task ledger.
 
 **The board is only a view. The real core is: rules + work ledger + evidence and verdicts.**
 
 ![Agent Board](docs/images/board.webp)
 
-- **External source of truth**: task state does not live only inside one agent's context, todo list, or `PROGRESS.md`
-- **Independent verification**: the Developer delivers; a fresh, independent Verifier decides whether the work passes
-- **Reviewable evidence**: DONE is not just a column; delivery, verification, and acceptance evidence remain inspectable
-- **Harness-independent**: Claude Code / Codex / OpenCode and others can operate on the same work facts through CLI / MCP
+- **External source of truth**: task state does not live only in one agent's context, todo list, or progress file
+- **Independent verification**: a Developer delivers; a fresh Independent Verifier checks it
+- **Reviewable evidence**: delivery / verification / handoff / decision history remains inspectable
+- **Harness-independent**: CLI / MCP / Web operate the same facts without binding to Claude Code, Codex, OpenCode, or a particular model
 - **Local-first**: one binary + SQLite, with no account, hosted service, or database server required
 
-## Why an external work item exists
+The Task lifecycle stays deliberately small: `READY` / `IN_PROGRESS` / `DONE` / `BLOCKED`.
 
-Agents are getting better at planning, decomposition, self-checking, and managing their own internal context. Those activities can stay inside the harness.
+Developer, Verifier, RC, handoff, and session are not additional top-level states. They are execution and audit facts around the Task.
 
-But these facts should not exist only in one agent's memory:
+## What it isn't
 
-- what the work actually is and what counts as complete
-- who picked it up, who executed it, and who took over after an interruption
-- what the Developer actually delivered
-- what an independent Verifier checked and what evidence supported the result
-- why the result was PASS, RC, or BLOCKED
-- where a Human authorization or decision was required
+Not an IDE. Not an agent. Not a harness. Not a scheduler.
 
-These are not primarily intelligence problems. They are problems of **handoff, verification, and responsibility boundaries**.
-
-> **Agents manage their internal steps. The Board records only the shared facts that must survive across executors and sessions.**
-
-## From a governance perspective, four kinds of facts matter
-
-| | Question answered |
-|---|---|
-| **Task** | What should be done? What counts as complete? |
-| **Execution** | Who worked on it? In which harness / worktree? Was there a takeover? |
-| **Evidence** | What did the Developer deliver? What did the Verifier actually verify? |
-| **Verdict** | PASS, RC, BLOCKED, or a Human decision? |
-
-The implementation still keeps task lifecycle deliberately simple: `READY` / `IN_PROGRESS` / `DONE` / `BLOCKED`.
-
-Developer, Verifier, RC, handoff, and session are not extra top-level task states. They are execution and audit facts around the work item.
-
-## Rules before tools
-
-Agent Board deliberately separates two concerns.
-
-### Workflow Skill: defines the rules
-
-- how Tasks are defined and when they enter READY
-- responsibilities of the Orchestrator, Developer, and Independent Verifier
-- how delivery moves into independent verification
-- how RC flows back and how re-verification works
-- how interruption, takeover, and stop-for-decision are handled
-- what actually counts as complete
-
-### Shared Task Board: records the facts
-
-- Tasks and explicit task-level state
-- READY ordering
-- execution metadata such as harness / model / worktree
-- delivery evidence
-- verification evidence
-- blocked reasons
-- handoff / takeover facts
-- audit history
+Keep discussing and developing in the tools you already use, and keep using Paseo or another orchestrator if you want parallel execution. Agent Board does not take over an agent's internal plan, route models, or turn the Board into a workflow engine.
 
 **Code provides capabilities. The Skill defines the rules. The Board is a ledger, not a workflow engine.**
 
-## How one work item completes
+## How one Task completes
 
 Suppose you are building `shop-api` and find a bug: stacking a discount coupon with a promotion charges too much.
 
-**1. Define the work item first. Do not start yet.**
+**1. Define the Task first. Do not start yet.**
 
 > Turn this bug into a Board Task with clear acceptance criteria. Do not start implementation yet.
 
@@ -86,15 +80,15 @@ The Task is created for review. Only READY is an explicit authorization to execu
 
 > Execute the READY queue following `agent-board-workflow`. Stop and report when a Human decision is required.
 
-The Developer may manage its own internal plan, but the delivery must leave reviewable facts and evidence.
+The Developer manages its own internal plan, then leaves a stable workspace, delivery facts, and sufficient evidence.
 
 **3. An Independent Verifier checks it**
 
-A **fresh, independent session/instance** verifies the Task against its acceptance criteria instead of letting the Developer declare its own success.
+A **fresh, independent session/instance** verifies the Task against the full diff and its acceptance criteria instead of letting the Developer declare its own success.
 
-- PASS → accept delivery → DONE
-- RC → return to the Developer for correction → verify again with a new independent Verifier
-- Human decision required → BLOCKED with the reason recorded
+- PASS → accept the verified delivery → package the accepted commit → DONE
+- RC → return to the Developer → create a new delivery → verify again with a new Independent Verifier
+- BLOCKED / Human decision required → stop and record the reason
 
 ![Task detail: delivery, independent verification, and audit history](docs/images/task-detail.webp)
 
@@ -119,7 +113,7 @@ The semantics map naturally:
 
 If your team can eventually carry the same rules entirely through GitHub or another platform, that is fine. **The rules should remain valid without depending on Agent Board itself.**
 
-Agent Board exists as a lightweight, local reference implementation that agents can operate directly.
+`aboard` exists as a lightweight, local reference implementation that agents can operate directly.
 
 ## Compared with common approaches
 
@@ -164,16 +158,9 @@ If you want merge / push automated as well, authorize that explicitly for the ru
 
 Agent Board is not about removing Humans from software development. It is about removing Humans from **babysitting the middle** and keeping their attention on authorization and judgment.
 
-## What it deliberately does not do
-
-No model routing. No agent runtime. No agent scheduling. No takeover of an agent's internal todo list. No requirement to replace your IDE or harness.
-
-It is responsible for one thing:
-
-> **when AI work passes between executors, the task, evidence, verification, and decision trail do not disappear with a session.**
-
 ## More
 
+- [Workflow Skill: full rules](workflow/SKILL.md)
 - [Everyday use: CLI / MCP / the two Skills](docs/usage_EN.md)
 - [Upgrade, migrate, clean, uninstall](docs/operations_EN.md)
 - [PRODUCT.md](PRODUCT.md) — product definition and boundaries
