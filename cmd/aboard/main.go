@@ -12,7 +12,7 @@ import (
 )
 
 // version is set at build time with -ldflags "-X main.version=...".
-var version = "dev"
+var version string
 
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -24,7 +24,7 @@ func main() {
 		Dir:     dir,
 		Home:    workspace.HomeDir(),
 		Actor:   os.Getenv("AGENT_BOARD_ACTOR"),
-		Version: version,
+		Version: resolvedVersion(version),
 		Stdin:   os.Stdin,
 		Stdout:  os.Stdout,
 		Stderr:  os.Stderr,
