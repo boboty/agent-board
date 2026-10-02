@@ -6,7 +6,7 @@
 
 Every meaningful piece of delegated agent work should have a clear owner, an evidence-backed delivery, an independent verification, and a record of why it was accepted.
 
-Agent Board is first a **work discipline for AI-assisted software development**: it defines what deserves to become a Task, who is responsible for implementation, what counts as delivery, who may verify it, and how interruption, rework, and human decisions stay on the record.
+Agent Board is first a **work discipline for AI-assisted software development**: it defines what deserves to become a Task, who takes responsibility for execution, what counts as delivery, who may independently verify it, and how interruption, rework, and human decisions stay on the record.
 
 The discipline is encoded as a harness-independent Workflow Skill. `aboard` is its local reference implementation, giving different agents, sessions, harnesses, and worktrees the same source of truth.
 
@@ -25,18 +25,20 @@ Once several agents work across sessions, worktrees, and tools, the hard questio
 
 Better models do not make these questions disappear. They are problems of **coordination, handoff, verification, and accountability**.
 
+**The core discipline itself is not specific to software development, but software engineering is the first domain it has been designed and validated against in real projects.** Other domains may need different evidence and verification rules; those should be proven separately rather than assumed here.
+
 Human engineering teams use tickets, review, sign-off, and audit trails for the same reason. Agent teams need a written discipline that agents themselves can follow.
 
 ## The rules
 
-1. **One independently delegable unit of work, one Task.** Only work that can be independently scheduled, verified, and handed off belongs on the Board. Developer todos, plans, sub-steps, and subagent decomposition stay inside the harness.
-2. **Define the boundary before authorizing execution.** A Task needs a clear goal, scope, and checkable acceptance criteria. Creating it does not start work; entering `READY` is the execution boundary. A Task workspace has at most one current Developer at a time.
+1. **One independently delegable unit of work, one Task.** Only work that can be independently scheduled, verified, and handed off belongs on the Board. Worker todos, plans, sub-steps, and subagent decomposition stay inside the harness.
+2. **Define the boundary before authorizing execution.** A Task needs a clear goal, scope, and checkable acceptance criteria. Creating it does not start work; entering `READY` is the execution boundary. A Task workspace has at most one current Worker at a time.
 3. **Done means evidence.** A delivery records what changed, its baseline, checks performed and raw results, what was not verified and why, plus known limitations.
-4. **Separation of duties.** The Developer may self-check, but never declares PASS. Every formal verification round uses a new, independent Verifier session/instance and ends in `PASS`, `RC`, or `BLOCKED`.
-5. **Rework stays with the Task.** RC returns to the same Task and delivery boundary. A correction produces a new delivery and a new Independent Verifier re-verifies the whole Task. Delivery, verification, and handoff facts are append-only.
+4. **Separation of duties.** The Worker may self-check, but never declares PASS. Every formal verification round uses a new, independent Verifier session/instance and ends in `PASS`, `RC`, or `BLOCKED`.
+5. **Rework stays with the Task.** RC returns to the same Task and delivery boundary for the Worker to correct. A correction produces a new delivery and a new Independent Verifier re-verifies the whole Task. Delivery, verification, and handoff facts are append-only.
 6. **Shared state does not live in one agent's memory.** On interruption or takeover, recover from the Task and Board facts, Workspace / Git, and agent activity. A handoff fact supplements missing context; it does not create another `PROGRESS.md`.
 
-The Human keeps authority over product intent, READY priority, and outward or irreversible actions such as push, merge, and release. The Orchestrator coordinates but does not implement or verify. The Developer is the implementation writer. The Independent Verifier is read-only.
+The Human keeps authority over product intent, READY priority, and outward or irreversible actions such as push, merge, and release. The Orchestrator coordinates but does not perform the work or verify it. The Worker executes and delivers. The Independent Verifier is read-only.
 
 > **Agents manage their internal steps. The protocol governs only the responsibilities, evidence, and decisions that must survive across executors.**
 
@@ -49,14 +51,14 @@ Agent Board turns those rules into an external, persistent, auditable task ledge
 ![Agent Board](docs/images/board.webp)
 
 - **External source of truth**: task state does not live only in one agent's context, todo list, or progress file
-- **Independent verification**: a Developer delivers; a fresh Independent Verifier checks it
+- **Independent verification**: a Worker delivers; a fresh Independent Verifier checks it
 - **Reviewable evidence**: delivery / verification / handoff / decision history remains inspectable
 - **Harness-independent**: CLI / MCP / Web operate the same facts without binding to Claude Code, Codex, OpenCode, or a particular model
 - **Local-first**: one binary + SQLite, with no account, hosted service, or database server required
 
 The Task lifecycle stays deliberately small: `READY` / `IN_PROGRESS` / `DONE` / `BLOCKED`.
 
-Developer, Verifier, RC, handoff, and session are not additional top-level states. They are execution and audit facts around the Task.
+Worker, Verifier, RC, handoff, and session are not additional top-level states. They are execution and audit facts around the Task.
 
 ## What it isn't
 
@@ -76,18 +78,18 @@ Suppose you are building `shop-api` and find a bug: stacking a discount coupon w
 
 The Task is created for review. Only READY is an explicit authorization to execute.
 
-**2. The Developer executes and leaves evidence**
+**2. The Worker executes and leaves evidence**
 
 > Execute the READY queue following `agent-board-workflow`. Stop and report when a Human decision is required.
 
-The Developer manages its own internal plan, then leaves a stable workspace, delivery facts, and sufficient evidence.
+The Worker manages its own internal plan, then leaves a stable workspace, delivery facts, and sufficient evidence.
 
 **3. An Independent Verifier checks it**
 
-A **fresh, independent session/instance** verifies the Task against the full diff and its acceptance criteria instead of letting the Developer declare its own success.
+A **fresh, independent session/instance** verifies the Task against the full diff and its acceptance criteria instead of letting the Worker declare its own success.
 
 - PASS → accept the verified delivery → package the accepted commit → DONE
-- RC → return to the Developer → create a new delivery → verify again with a new Independent Verifier
+- RC → return to the Worker → create a new delivery → verify again with a new Independent Verifier
 - BLOCKED / Human decision required → stop and record the reason
 
 ![Task detail: delivery, independent verification, and audit history](docs/images/task-detail.webp)
@@ -107,7 +109,7 @@ GitHub Issues / PRs / CI / Review are excellent for collaboration and closure in
 The semantics map naturally:
 
 - Board Task ↔ Issue / work item
-- Developer delivery ↔ implementation / PR candidate
+- Worker delivery ↔ implementation / PR candidate
 - Verification evidence ↔ CI / review evidence
 - PASS / Closure ↔ accepted delivery / merge boundary
 
@@ -144,8 +146,8 @@ aboard web
 
 **Choose an execution setup**
 
-- **One Claude Code / Codex is enough**: use separate, independent sessions/instances for Developer and Verifier
-- **Background execution or parallel Tasks**: an Orchestrator such as [Paseo](https://github.com/getpaseo/paseo) can consume READY and assign a Developer plus Independent Verifier
+- **One Claude Code / Codex is enough**: use separate, independent sessions/instances for Worker and Verifier
+- **Background execution or parallel Tasks**: an Orchestrator such as [Paseo](https://github.com/getpaseo/paseo) can consume READY and assign a Worker plus Independent Verifier
 
 If you want merge / push automated as well, authorize that explicitly for the run; otherwise stop at the verified delivery boundary.
 
@@ -153,7 +155,7 @@ If you want merge / push automated as well, authorize that explicitly for the ru
 
 - Creating a Task does not start work; READY is the explicit execution boundary
 - Unclear semantics, conflicts, and unexpected conditions stop and get recorded, using BLOCKED when necessary
-- A Developer cannot replace independent verification with “I checked my own work”
+- A Worker cannot replace independent verification with “I checked my own work”
 - merge / push automation is authorized by the Human for the run
 
 Agent Board is not about removing Humans from software development. It is about removing Humans from **babysitting the middle** and keeping their attention on authorization and judgment.
