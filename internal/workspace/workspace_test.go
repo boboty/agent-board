@@ -40,7 +40,7 @@ func TestInitThenLocateFromNestedDirectory(t *testing.T) {
 	home := testHome(t)
 	repo := realDir(t, t.TempDir())
 
-	created, err := Init(ctx, repo, home)
+	created, err := Init(ctx, repo, home, filepath.Base(repo))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -73,7 +73,7 @@ func TestInitThenLocateFromNestedDirectory(t *testing.T) {
 		t.Fatalf("status %+v", status)
 	}
 
-	if _, err := Init(ctx, repo, home); !domain.IsCode(err, projectconfig.CodeProjectAlreadyInitialized) {
+	if _, err := Init(ctx, repo, home, filepath.Base(repo)); !domain.IsCode(err, projectconfig.CodeProjectAlreadyInitialized) {
 		t.Fatalf("second init: %v", err)
 	}
 }
@@ -91,7 +91,7 @@ func TestFreshCloneCreatesDatabaseOnOpen(t *testing.T) {
 	ctx := context.Background()
 	home := testHome(t)
 	clone := t.TempDir()
-	identity := `{"version": 1, "project_id": "01M3VN4DT676SGJ90T58JRB13R"}`
+	identity := `{"version": 2, "project_id": "01M3VN4DT676SGJ90T58JRB13R", "name": "fixture"}`
 	if err := os.WriteFile(filepath.Join(clone, projectconfig.IdentityFileName), []byte(identity), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -135,7 +135,7 @@ func TestWorktreesShareOneBoard(t *testing.T) {
 		t.Fatal(err)
 	}
 	git(t, repo, "init", "-q")
-	if _, err := Init(ctx, repo, home); err != nil {
+	if _, err := Init(ctx, repo, home, filepath.Base(repo)); err != nil {
 		t.Fatal(err)
 	}
 	git(t, repo, "add", projectconfig.IdentityFileName)
@@ -152,6 +152,9 @@ func TestWorktreesShareOneBoard(t *testing.T) {
 	}
 	if other.Root != worktree || main.DatabasePath != other.DatabasePath {
 		t.Fatalf("worktree root %s database %s, main database %s", other.Root, other.DatabasePath, main.DatabasePath)
+	}
+	if main.Identity.Name == "" || main.Identity.Name != other.Identity.Name {
+		t.Fatalf("main name %q and worktree name %q do not match", main.Identity.Name, other.Identity.Name)
 	}
 
 	a, err := Open(ctx, main)

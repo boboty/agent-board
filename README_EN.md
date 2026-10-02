@@ -94,7 +94,7 @@ aboard doctor
 aboard web
 ```
 
-`aboard init` creates `.agent-board.json`. Commit it so every worktree and process for the same project resolves to the same Board.
+`aboard init` creates a version 2 `.agent-board.json`, using the project root directory name by default. Set an explicit name with `aboard init --name "Project Name"`. Commit the file so every worktree and process for the same project displays the same name and resolves to the same Board. Ordinary `aboard doctor` is read-only; migrate an older identity explicitly with `aboard doctor --fix [--name "Project Name"]`.
 
 `aboard web` automatically chooses a free `127.0.0.1` port and prints the URL. Multiple projects can keep their own Boards open at the same time.
 

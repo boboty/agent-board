@@ -94,7 +94,7 @@ aboard doctor
 aboard web
 ```
 
-`aboard init` 会创建 `.agent-board.json`。建议把它提交到仓库，这样同一项目的不同 worktree 和进程都会找到同一块 Board。
+`aboard init` 会创建版本 2 的 `.agent-board.json`，默认以项目根目录名作为项目名称；可用 `aboard init --name "项目名称"` 指定名称。建议把它提交到仓库，这样同一项目的不同 worktree 和进程都会显示同一名称并找到同一块 Board。普通 `aboard doctor` 只读检查；旧版身份可用 `aboard doctor --fix [--name "项目名称"]` 显式迁移。
 
 `aboard web` 会在 `127.0.0.1` 上自动选择一个空闲端口并输出 URL。多个项目可以同时开着自己的 Board。
 

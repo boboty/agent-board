@@ -56,7 +56,7 @@ func Open(ctx context.Context, project projectconfig.Project) (*board.Service, e
 }
 
 // Init creates a new project identity in dir and its Board database.
-func Init(ctx context.Context, dir string, home string) (projectconfig.Project, error) {
+func Init(ctx context.Context, dir string, home, name string) (projectconfig.Project, error) {
 	dataRoot, err := projectconfig.ResolveDataRoot(home)
 	if err != nil {
 		return projectconfig.Project{}, err
@@ -65,7 +65,7 @@ func Init(ctx context.Context, dir string, home string) (projectconfig.Project, 
 	if err != nil {
 		return projectconfig.Project{}, err
 	}
-	project, err := projectconfig.Initialize(dir, generator, dataRoot)
+	project, err := projectconfig.Initialize(dir, generator, dataRoot, name)
 	if err != nil {
 		return projectconfig.Project{}, err
 	}
@@ -80,6 +80,7 @@ func Init(ctx context.Context, dir string, home string) (projectconfig.Project, 
 // opened Board.
 type Status struct {
 	ProjectRoot    string `json:"project_root"`
+	ProjectName    string `json:"project_name"`
 	ProjectID      string `json:"project_id"`
 	DataDir        string `json:"data_dir"`
 	DatabasePath   string `json:"database_path"`
@@ -95,6 +96,7 @@ type Status struct {
 func Check(ctx context.Context, project projectconfig.Project) (Status, error) {
 	status := Status{
 		ProjectRoot:  project.Root,
+		ProjectName:  project.Identity.Name,
 		ProjectID:    project.Identity.ProjectID,
 		DataDir:      project.DataDir,
 		DatabasePath: project.DatabasePath,

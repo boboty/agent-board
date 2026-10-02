@@ -61,7 +61,7 @@ const CodeUsage = "USAGE"
 const usage = `usage: aboard <command> [flags]
 
 Project:
-  init                         create .agent-board.json here and the shared Board database
+  init [--name NAME]           create a named .agent-board.json and the shared Board database
   clean [--yes]                remove this project's identity and shared Board data
   uninstall [--yes] [--force]  remove aboard, its Skills, and all local Board data
   check                        show project discovery and database location
@@ -105,6 +105,7 @@ Common flags:
 
 REF is a task ID or number (12 or #12). Output is JSON.
 doctor prints human-readable component status; exit 0 means no problems were found by its read-only checks, 1 means a component needs attention, and 2 means invalid usage. It checks that the Board file exists and has a recognizable SQLite format; it does not connect to the database. MCP status reports that operation definitions are loaded; it does not start an MCP service.
+aboard doctor --fix [--name NAME] explicitly migrates a version 1 project identity to version 2; ordinary aboard doctor is read-only.
 `
 
 type usageError struct{ message string }
@@ -861,12 +862,33 @@ func requireFlag(c *command, name string) error {
 	return nil
 }
 
+func projectDirectoryName(dir string) string {
+	absolute, err := filepath.Abs(dir)
+	if err == nil {
+		dir = absolute
+	}
+	resolved, err := filepath.EvalSymlinks(dir)
+	if err == nil {
+		dir = resolved
+	}
+	return filepath.Base(filepath.Clean(dir))
+}
+
 func runInit(ctx context.Context, args []string, env Env) error {
 	c := newCommand("init", env)
+	name := c.flags.String("name", "", "human-readable project name (default: project directory name)")
 	if _, err := c.parse(args, 0, 0); err != nil {
 		return err
 	}
-	project, err := workspace.Init(ctx, c.dir, env.Home)
+	projectName := projectDirectoryName(c.dir)
+	if c.set("name") {
+		projectName = *name
+	}
+	projectName, err := projectconfig.ValidateProjectName(projectName)
+	if err != nil {
+		return usagef("init: invalid project name: %v", err)
+	}
+	project, err := workspace.Init(ctx, c.dir, env.Home, projectName)
 	if err != nil {
 		return err
 	}
@@ -910,8 +932,13 @@ func plural(count int, singular, plural string) string {
 
 func runDoctor(ctx context.Context, args []string, env Env) error {
 	c := newCommand("doctor", env)
+	fix := c.flags.Bool("fix", false, "explicitly migrate version 1 project identity to version 2")
+	name := c.flags.String("name", "", "project name to use during identity migration")
 	if _, err := c.parse(args, 0, 0); err != nil {
 		return err
+	}
+	if c.set("name") && !*fix {
+		return usagef("doctor: --name requires --fix")
 	}
 	lines := make([]doctorLine, 0, 5)
 	healthy := true
@@ -1015,11 +1042,42 @@ func runDoctor(ctx context.Context, args []string, env Env) error {
 		lines = append(lines, doctorLine{"Skills", status, strings.Join(skillDetails, "; "), next})
 	}
 
-	project, projectErr := projectconfig.Discover(c.dir)
-	located, locateErr := workspace.Locate(c.dir, env.Home)
+	project, projectErr := projectconfig.Inspect(c.dir)
+	projectMigrated := false
+	if projectErr == nil && project.Identity.Version == 1 && *fix {
+		migrationName := projectDirectoryName(project.Root)
+		if c.set("name") {
+			migrationName = *name
+		}
+		_, projectErr = projectconfig.MigrateIdentity(project.Root, migrationName)
+		if projectErr == nil {
+			projectMigrated = true
+			project, projectErr = projectconfig.Discover(c.dir)
+		}
+	}
+	// Inspect accepts version 1 so doctor can check the unchanged Board path;
+	// normal commands use strict Discover and require migration first.
+	projectUsable := projectErr == nil
+	var databasePath string
+	var locateErr error
+	if projectUsable {
+		dataRoot, rootErr := projectconfig.ResolveDataRoot(env.Home)
+		if rootErr != nil {
+			locateErr = rootErr
+		} else {
+			databasePath, locateErr = projectconfig.ProjectDatabasePath(dataRoot, project.Identity.ProjectID)
+		}
+	}
 	switch {
+	case projectErr == nil && project.Identity.Version == 1:
+		lines = append(lines, doctorLine{"Project", "MIGRATION REQUIRED", fmt.Sprintf("%s (version 1; project_id %s)", project.Root, project.Identity.ProjectID), "Run `aboard doctor --fix` to migrate this identity; add `--name NAME` to override the directory name."})
+		healthy = false
 	case projectErr == nil:
-		lines = append(lines, doctorLine{"Project", "OK", fmt.Sprintf("%s (project_id %s)", project.Root, project.Identity.ProjectID), ""})
+		detail := fmt.Sprintf("%s (%s; project_id %s)", project.Root, project.Identity.Name, project.Identity.ProjectID)
+		if projectMigrated {
+			detail += "; identity migrated to version 2"
+		}
+		lines = append(lines, doctorLine{"Project", "OK", detail, ""})
 	case domain.IsCode(projectErr, projectconfig.CodeProjectNotFound):
 		lines = append(lines, doctorLine{"Project", "MISSING", "Could not find .agent-board.json in this directory or any parent directory.", "Run `aboard init` from the project root."})
 		healthy = false
@@ -1028,30 +1086,30 @@ func runDoctor(ctx context.Context, args []string, env Env) error {
 		healthy = false
 	}
 
-	if projectErr == nil {
+	if projectUsable {
 		if locateErr != nil {
 			lines = append(lines, doctorLine{"Board", "PROBLEM", "Could not resolve the database path: " + locateErr.Error(), "Check HOME and the Agent Board data directory configuration."})
 			healthy = false
-		} else if info, statErr := os.Stat(located.DatabasePath); errors.Is(statErr, os.ErrNotExist) {
-			lines = append(lines, doctorLine{"Board", "MISSING", located.DatabasePath, "The database has not been created; running `aboard board` will initialize it as part of normal operation."})
+		} else if info, statErr := os.Stat(databasePath); errors.Is(statErr, os.ErrNotExist) {
+			lines = append(lines, doctorLine{"Board", "MISSING", databasePath, "The database has not been created; running `aboard board` will initialize it as part of normal operation."})
 			healthy = false
 		} else if statErr != nil {
-			lines = append(lines, doctorLine{"Board", "PROBLEM", located.DatabasePath + ": " + statErr.Error(), "Check access to the database path and its parent directory."})
+			lines = append(lines, doctorLine{"Board", "PROBLEM", databasePath + ": " + statErr.Error(), "Check access to the database path and its parent directory."})
 			healthy = false
 		} else if !info.Mode().IsRegular() {
-			lines = append(lines, doctorLine{"Board", "PROBLEM", located.DatabasePath + " is not a regular file", "Check the database path and restore it as a valid board.db file."})
+			lines = append(lines, doctorLine{"Board", "PROBLEM", databasePath + " is not a regular file", "Check the database path and restore it as a valid board.db file."})
 			healthy = false
 		} else {
-			validHeader, headerErr := hasSQLiteHeader(located.DatabasePath)
+			validHeader, headerErr := hasSQLiteHeader(databasePath)
 			switch {
 			case headerErr != nil:
-				lines = append(lines, doctorLine{"Board", "PROBLEM", located.DatabasePath + ": " + headerErr.Error(), "Check read access to the database file. doctor does not open or repair the database."})
+				lines = append(lines, doctorLine{"Board", "PROBLEM", databasePath + ": " + headerErr.Error(), "Check read access to the database file. doctor does not open or repair the database."})
 				healthy = false
 			case !validHeader:
-				lines = append(lines, doctorLine{"Board", "PROBLEM", located.DatabasePath + " does not have a valid SQLite file header", "Check whether the file was replaced or corrupted, and restore the project database from a trusted backup."})
+				lines = append(lines, doctorLine{"Board", "PROBLEM", databasePath + " does not have a valid SQLite file header", "Check whether the file was replaced or corrupted, and restore the project database from a trusted backup."})
 				healthy = false
 			default:
-				lines = append(lines, doctorLine{"Board", "PRESENT", located.DatabasePath + " (database file exists and has a recognizable SQLite format)", ""})
+				lines = append(lines, doctorLine{"Board", "PRESENT", databasePath + " (database file exists and has a recognizable SQLite format)", ""})
 			}
 		}
 	} else {
@@ -1180,7 +1238,7 @@ func runWeb(ctx context.Context, args []string, env Env) error {
 		return err
 	}
 	defer closeBoard()
-	handler, err := web.NewHandler(service, web.Info{ProjectID: project.Identity.ProjectID, Actor: c.actor})
+	handler, err := web.NewHandler(service, web.Info{ProjectName: project.Identity.Name, ProjectID: project.Identity.ProjectID, Actor: c.actor})
 	if err != nil {
 		return err
 	}
@@ -1190,6 +1248,7 @@ func runWeb(ctx context.Context, args []string, env Env) error {
 		OnListen: func(listener net.Listener) {
 			_ = writeJSON(env.Stdout, map[string]string{
 				"url":           "http://" + listener.Addr().String() + "/",
+				"project_name":  project.Identity.Name,
 				"project_id":    project.Identity.ProjectID,
 				"database_path": project.DatabasePath,
 				"actor":         c.actor,

@@ -35,10 +35,11 @@ var assetFS embed.FS
 const contentSecurityPolicy = "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; " +
 	"connect-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'"
 
-// Info describes the served Board for the page footer.
+// Info describes the project and actor shown on the Web Board.
 type Info struct {
-	ProjectID string
-	Actor     string
+	ProjectName string
+	ProjectID   string
+	Actor       string
 }
 
 type handler struct {

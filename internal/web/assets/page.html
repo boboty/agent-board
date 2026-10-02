@@ -3,15 +3,15 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{{.T.ProductName}} · {{if .Completed}}{{.T.CompletedTitle}}{{else}}{{.T.BoardSubtitle}}{{end}}</title>
+<title>{{.Info.ProjectName}} · {{if .Completed}}{{.T.CompletedTitle}}{{else}}{{.T.BoardSubtitle}}{{end}}</title>
 <link rel="stylesheet" href="/assets/board.css">
 <script src="/assets/board.js" defer></script>
 </head>
 <body data-live-updated="{{.T.LiveUpdated}}" data-live-stale="{{.T.LiveStale}}">
 <header class="board-header">
   <div class="board-header-left">
-    <h1>{{.T.ProductName}}</h1>
-    <p class="board-subtitle">{{.T.BoardSubtitle}}</p>
+    <h1>{{.Info.ProjectName}}</h1>
+    <p class="board-subtitle">{{.T.ProductName}} · {{.T.BoardSubtitle}}</p>
   </div>
   <div class="board-header-right">
     <a class="btn btn-accent" id="new-task-btn" href="/?new=1">{{.T.NewTask}}</a>
@@ -43,7 +43,7 @@
     </form>
   </div>
 </div>
-<footer class="board-footer">{{.T.ProductName}} · {{.T.ProjectLabel}} <code>{{.Info.ProjectID}}</code> · {{.T.ActorLabel}} <code>{{.Info.Actor}}</code></footer>
+<footer class="board-footer">{{.T.ProductName}} · {{.T.ProjectLabel}} {{.Info.ProjectName}} · ID <code>{{.Info.ProjectID}}</code> · {{.T.ActorLabel}} <code>{{.Info.Actor}}</code></footer>
 </body>
 </html>
 {{end}}

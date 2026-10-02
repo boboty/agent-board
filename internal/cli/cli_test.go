@@ -37,6 +37,15 @@ type harness struct {
 	env  Env
 }
 
+func mustRead(t *testing.T, path string) []byte {
+	t.Helper()
+	contents, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return contents
+}
+
 func newHarness(t *testing.T) *harness {
 	t.Helper()
 	home := t.TempDir()
@@ -145,11 +154,80 @@ func TestInitAndCheck(t *testing.T) {
 	if !status.DatabaseExists || status.ProjectID == "" {
 		t.Fatalf("status %+v", status)
 	}
-	if _, err := os.Stat(filepath.Join(h.repo, projectconfig.IdentityFileName)); err != nil {
+	identityPath := filepath.Join(h.repo, projectconfig.IdentityFileName)
+	if _, err := os.Stat(identityPath); err != nil {
 		t.Fatal(err)
+	}
+	identity := decodeJSON[projectconfig.Identity](t, string(mustRead(t, identityPath)))
+	if identity.Version != 2 || identity.Name != filepath.Base(h.repo) {
+		t.Fatalf("default identity = %+v, want version 2 and project root basename", identity)
 	}
 	h.fails(ExitError, projectconfig.CodeProjectAlreadyInitialized, "init")
 	h.fails(ExitError, projectconfig.CodeProjectNotFound, "check", "--dir", t.TempDir())
+	custom := t.TempDir()
+	customHarness := &harness{t: t, repo: custom, env: Env{Dir: custom, Home: t.TempDir(), Version: "test"}}
+	customHarness.ok("init", "--name", "  Named Project  ")
+	customIdentity := decodeJSON[projectconfig.Identity](t, string(mustRead(t, filepath.Join(custom, projectconfig.IdentityFileName))))
+	if customIdentity.Name != "Named Project" {
+		t.Fatalf("explicit identity name = %q", customIdentity.Name)
+	}
+	customHarness.fails(ExitUsage, CodeUsage, "init", "--name", " \t ")
+}
+
+func TestDoctorExplicitlyMigratesVersionOneIdentity(t *testing.T) {
+	h := newHarness(t)
+	identityPath := filepath.Join(h.repo, projectconfig.IdentityFileName)
+	current := decodeJSON[projectconfig.Identity](t, string(mustRead(t, identityPath)))
+	legacy := fmt.Sprintf(`{"version":1,"project_id":%q}`, current.ProjectID)
+	if err := os.WriteFile(identityPath, []byte(legacy), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	before := snapshotTree(t, h.env.Home, h.repo)
+	code, out, stderr := h.run("", "doctor")
+	assertDoctorEnglish(t, out)
+	if code != ExitError || stderr != "" || !strings.Contains(out, "Project  MIGRATION REQUIRED") || !strings.Contains(out, "aboard doctor --fix") {
+		t.Fatalf("doctor v1 exit %d stdout %q stderr %q", code, out, stderr)
+	}
+	if after := snapshotTree(t, h.env.Home, h.repo); !reflect.DeepEqual(before, after) {
+		t.Fatalf("read-only doctor changed files: before %v after %v", before, after)
+	}
+	code, invalidNameOutput, invalidNameStderr := h.run("", "doctor", "--fix", "--name", " \t ")
+	if code != ExitError || invalidNameStderr != "" || !strings.Contains(invalidNameOutput, "project name is invalid") {
+		t.Fatalf("doctor --fix invalid name exit %d stdout %q stderr %q", code, invalidNameOutput, invalidNameStderr)
+	}
+	if string(mustRead(t, identityPath)) != legacy {
+		t.Fatal("doctor --fix with an invalid name changed the version 1 identity")
+	}
+	code, out, stderr = h.run("", "doctor", "--fix", "--name", "Migrated Project")
+	if code == ExitUsage || stderr != "" || !strings.Contains(out, "Migrated Project") || !strings.Contains(out, "identity migrated to version 2") {
+		t.Fatalf("doctor --fix exit %d stdout %q stderr %q", code, out, stderr)
+	}
+	migrated := decodeJSON[projectconfig.Identity](t, string(mustRead(t, identityPath)))
+	if migrated.Version != 2 || migrated.ProjectID != current.ProjectID || migrated.Name != "Migrated Project" {
+		t.Fatalf("migrated identity = %+v; old identity %+v", migrated, current)
+	}
+	h.ok("board")
+	if _, err := os.Stat(filepath.Join(h.env.Home, ".agent-board", current.ProjectID, "board.db")); err != nil {
+		t.Fatalf("existing Board data missing after migration: %v", err)
+	}
+	h.fails(ExitUsage, CodeUsage, "doctor", "--name", "bad")
+}
+
+func TestDoctorFixDefaultsNameToProjectRoot(t *testing.T) {
+	h := newHarness(t)
+	identityPath := filepath.Join(h.repo, projectconfig.IdentityFileName)
+	current := decodeJSON[projectconfig.Identity](t, string(mustRead(t, identityPath)))
+	if err := os.WriteFile(identityPath, []byte(fmt.Sprintf(`{"version":1,"project_id":%q}`, current.ProjectID)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	code, output, stderr := h.run("", "doctor", "--fix")
+	if code == ExitUsage || stderr != "" || !strings.Contains(output, filepath.Base(h.repo)) {
+		t.Fatalf("doctor --fix exit %d stdout %q stderr %q", code, output, stderr)
+	}
+	migrated := decodeJSON[projectconfig.Identity](t, string(mustRead(t, identityPath)))
+	if migrated.Version != 2 || migrated.Name != filepath.Base(h.repo) || migrated.ProjectID != current.ProjectID {
+		t.Fatalf("migrated identity = %+v, want root name and preserved ID", migrated)
+	}
 }
 
 func TestSkillCommands(t *testing.T) {

@@ -25,7 +25,7 @@ func generator(t *testing.T) *ids.Generator {
 
 func TestInitializeAndDiscover(t *testing.T) {
 	repo, dataRoot := t.TempDir(), t.TempDir()
-	project, err := projectconfig.Initialize(repo, generator(t), dataRoot)
+	project, err := projectconfig.Initialize(repo, generator(t), dataRoot, "test project")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -46,7 +46,7 @@ func TestInitializeAndDiscover(t *testing.T) {
 		t.Fatalf("Discover() = %+v, %v", found, err)
 	}
 
-	_, err = projectconfig.Initialize(repo, generator(t), dataRoot)
+	_, err = projectconfig.Initialize(repo, generator(t), dataRoot, "test project")
 	if !domain.IsCode(err, projectconfig.CodeProjectAlreadyInitialized) {
 		t.Fatalf("re-Initialize() error = %v", err)
 	}
@@ -54,7 +54,7 @@ func TestInitializeAndDiscover(t *testing.T) {
 
 func TestInitializeRejectsDataRootInsideRepository(t *testing.T) {
 	repo := t.TempDir()
-	_, err := projectconfig.Initialize(repo, generator(t), filepath.Join(repo, ".board-data"))
+	_, err := projectconfig.Initialize(repo, generator(t), filepath.Join(repo, ".board-data"), "test project")
 	if !domain.IsCode(err, domain.CodeStorageConfiguration) {
 		t.Fatalf("Initialize() error = %v", err)
 	}
@@ -65,9 +65,11 @@ func TestInitializeRejectsDataRootInsideRepository(t *testing.T) {
 
 func TestDiscoverRejectsInvalidIdentity(t *testing.T) {
 	for name, contents := range map[string]string{
-		"bad id":        `{"version":1,"project_id":"nope"}`,
-		"unknown field": `{"version":1,"project_id":"01ARZ3NDEKTSV4RRFFQ69G5FAV","x":1}`,
-		"version":       `{"version":2,"project_id":"01ARZ3NDEKTSV4RRFFQ69G5FAV"}`,
+		"bad id":        `{"version":2,"project_id":"nope","name":"test"}`,
+		"unknown field": `{"version":2,"project_id":"01ARZ3NDEKTSV4RRFFQ69G5FAV","name":"test","x":1}`,
+		"version":       `{"version":3,"project_id":"01ARZ3NDEKTSV4RRFFQ69G5FAV","name":"test"}`,
+		"missing name":  `{"version":2,"project_id":"01ARZ3NDEKTSV4RRFFQ69G5FAV"}`,
+		"empty name":    `{"version":2,"project_id":"01ARZ3NDEKTSV4RRFFQ69G5FAV","name":"  "}`,
 	} {
 		repo := t.TempDir()
 		if err := os.WriteFile(filepath.Join(repo, projectconfig.IdentityFileName), []byte(contents), 0o600); err != nil {
@@ -110,7 +112,7 @@ func TestProjectDatabasePath(t *testing.T) {
 // external database and see each other's writes.
 func TestWorktreesShareOneBoard(t *testing.T) {
 	main, dataRoot := t.TempDir(), t.TempDir()
-	project, err := projectconfig.Initialize(main, generator(t), dataRoot)
+	project, err := projectconfig.Initialize(main, generator(t), dataRoot, "worktree project")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -146,5 +148,56 @@ func TestWorktreesShareOneBoard(t *testing.T) {
 	}
 	if got, err := fromWorktree.GetTask(context.Background(), created.ID); err != nil || got.Title != "shared" {
 		t.Fatalf("worktree view = %+v, %v (db %s)", got, err, project.DatabasePath)
+	}
+}
+
+func TestVersionOneRequiresExplicitMigration(t *testing.T) {
+	root, dataRoot := t.TempDir(), t.TempDir()
+	const id = "01M3VN4DT676SGJ90T58JRB13R"
+	identityPath := filepath.Join(root, projectconfig.IdentityFileName)
+	legacy := []byte(`{"version":1,"project_id":"` + id + `"}`)
+	if err := os.WriteFile(identityPath, legacy, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := projectconfig.Discover(root); !domain.IsCode(err, projectconfig.CodeIdentityMigrationRequired) {
+		t.Fatalf("Discover v1 error = %v", err)
+	}
+	inspected, err := projectconfig.Inspect(root)
+	if err != nil || inspected.Identity.Version != 1 || inspected.Identity.ProjectID != id {
+		t.Fatalf("Inspect v1 = %+v, %v", inspected, err)
+	}
+	dataDir := filepath.Join(dataRoot, id)
+	if err := os.MkdirAll(dataDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	db, err := board.Open(context.Background(), board.Config{DatabasePath: filepath.Join(dataDir, "board.db"), ProjectID: id})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	migrated, err := projectconfig.MigrateIdentity(root, "Readable name")
+	if err != nil || migrated.Version != 2 || migrated.ProjectID != id || migrated.Name != "Readable name" {
+		t.Fatalf("MigrateIdentity = %+v, %v", migrated, err)
+	}
+	found, err := projectconfig.Discover(root)
+	if err != nil || found.Identity != migrated {
+		t.Fatalf("Discover migrated = %+v, %v", found, err)
+	}
+	if _, err := os.Stat(filepath.Join(dataDir, "board.db")); err != nil {
+		t.Fatalf("migration changed Board data: %v", err)
+	}
+}
+
+func TestInitializeRejectsInvalidName(t *testing.T) {
+	for _, name := range []string{"", " \t ", "bad\nname"} {
+		repo := t.TempDir()
+		if _, err := projectconfig.Initialize(repo, generator(t), t.TempDir(), name); !domain.IsCode(err, projectconfig.CodeInitializationFailed) {
+			t.Errorf("Initialize(%q) error = %v", name, err)
+		}
+		if _, err := os.Stat(filepath.Join(repo, projectconfig.IdentityFileName)); !os.IsNotExist(err) {
+			t.Errorf("Initialize(%q) wrote identity", name)
+		}
 	}
 }

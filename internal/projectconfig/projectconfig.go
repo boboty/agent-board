@@ -17,6 +17,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/boboty/agent-board/internal/domain"
 	"github.com/boboty/agent-board/internal/ids"
@@ -25,8 +27,9 @@ import (
 const (
 	// IdentityFileName is the repository-local project identity file.
 	IdentityFileName = ".agent-board.json"
-	// CurrentIdentityVersion is the only identity format version supported.
-	CurrentIdentityVersion = 1
+	// CurrentIdentityVersion is the only identity format accepted by normal
+	// project discovery.
+	CurrentIdentityVersion = 2
 	// DatabaseFileName is the Board database file inside a project data directory.
 	DatabaseFileName = "board.db"
 	// DataRootName is the directory below the user's home that holds every
@@ -37,6 +40,9 @@ const (
 	CodeProjectNotFound = "PROJECT_NOT_FOUND"
 	// CodeInvalidIdentity means an identity file is unsafe or has invalid contents.
 	CodeInvalidIdentity = "INVALID_PROJECT_IDENTITY"
+	// CodeIdentityMigrationRequired means a version 1 identity needs an
+	// explicit doctor --fix migration.
+	CodeIdentityMigrationRequired = "PROJECT_IDENTITY_MIGRATION_REQUIRED"
 	// CodeProjectAlreadyInitialized means the repository already has an identity entry.
 	CodeProjectAlreadyInitialized = "PROJECT_ALREADY_INITIALIZED"
 	// CodePathResolution means the data location cannot be resolved.
@@ -51,6 +57,7 @@ const (
 type Identity struct {
 	Version   int    `json:"version"`
 	ProjectID string `json:"project_id"`
+	Name      string `json:"name"`
 }
 
 // Project identifies a repository and its external storage locations. DataDir
@@ -70,6 +77,17 @@ type IDGenerator interface {
 // Discover searches upward from start for a strict project identity. If start
 // names a file, discovery begins in its containing directory.
 func Discover(start string) (Project, error) {
+	return discover(start, false)
+}
+
+// Inspect discovers and validates either supported identity version. It is
+// intended for doctor, which must report version 1 without enabling normal
+// Board commands to use it.
+func Inspect(start string) (Project, error) {
+	return discover(start, true)
+}
+
+func discover(start string, allowLegacy bool) (Project, error) {
 	dir, err := discoveryStart(start)
 	if err != nil {
 		return Project{}, domain.WrapError(err, CodeDiscoveryFailed, "cannot inspect project discovery start", false)
@@ -82,7 +100,7 @@ func Discover(start string) (Project, error) {
 			if !info.Mode().IsRegular() {
 				return Project{}, invalidIdentity(errors.New("identity path is not a regular file"))
 			}
-			identity, readErr := readIdentity(identityPath)
+			identity, readErr := readIdentity(identityPath, allowLegacy)
 			if readErr != nil {
 				return Project{}, readErr
 			}
@@ -125,13 +143,17 @@ func ProjectDatabasePath(dataRoot, projectID string) (string, error) {
 // Existing identity destinations are never overwritten. dataRoot must resolve
 // outside the repository, and every precondition is validated before any
 // write; a failure removes only directories created by this call.
-func Initialize(repositoryRoot string, generator IDGenerator, dataRoot string) (Project, error) {
+func Initialize(repositoryRoot string, generator IDGenerator, dataRoot, name string) (Project, error) {
 	root, err := canonicalDirectory(repositoryRoot)
 	if err != nil {
 		return Project{}, domain.WrapError(err, CodeInitializationFailed, "repository root must be an existing directory", false)
 	}
 	if generator == nil {
 		return Project{}, domain.NewError(CodeInitializationFailed, "project ID generator is required", false)
+	}
+	name, err = ValidateProjectName(name)
+	if err != nil {
+		return Project{}, domain.WrapError(err, CodeInitializationFailed, "project name is invalid", false)
 	}
 	if dataRoot == "" {
 		return Project{}, pathError("data root is required")
@@ -154,7 +176,7 @@ func Initialize(repositoryRoot string, generator IDGenerator, dataRoot string) (
 	if err != nil {
 		return Project{}, domain.WrapError(err, CodeInitializationFailed, "generated project ID is invalid", false)
 	}
-	identity := Identity{Version: CurrentIdentityVersion, ProjectID: projectID}
+	identity := Identity{Version: CurrentIdentityVersion, ProjectID: projectID, Name: name}
 	dataDir := filepath.Join(dataRoot, projectID)
 
 	createdDirs, err := createDirectories(dataDir)
@@ -247,20 +269,23 @@ func discoveryStart(start string) (string, error) {
 	return resolved, nil
 }
 
-func readIdentity(path string) (Identity, error) {
+func readIdentity(path string, allowLegacy bool) (Identity, error) {
 	file, err := os.Open(path)
 	if err != nil {
 		return Identity{}, invalidIdentity(err)
 	}
 	defer file.Close()
-	identity, err := decodeIdentity(file)
+	identity, err := decodeIdentity(file, allowLegacy)
 	if err != nil {
+		if domain.IsCode(err, CodeIdentityMigrationRequired) {
+			return Identity{}, err
+		}
 		return Identity{}, invalidIdentity(err)
 	}
 	return identity, nil
 }
 
-func decodeIdentity(reader io.Reader) (Identity, error) {
+func decodeIdentity(reader io.Reader, allowLegacy bool) (Identity, error) {
 	decoder := json.NewDecoder(reader)
 	decoder.DisallowUnknownFields()
 	var identity Identity
@@ -270,7 +295,10 @@ func decodeIdentity(reader io.Reader) (Identity, error) {
 	if _, err := decoder.Token(); !errors.Is(err, io.EOF) {
 		return Identity{}, errors.New("trailing data after identity object")
 	}
-	if identity.Version != CurrentIdentityVersion {
+	if identity.Version == 1 && !allowLegacy {
+		return Identity{}, domain.NewError(CodeIdentityMigrationRequired, "version 1 project identity requires explicit migration; run `aboard doctor --fix`", false)
+	}
+	if identity.Version != 1 && identity.Version != CurrentIdentityVersion {
 		return Identity{}, fmt.Errorf("unsupported identity version %d", identity.Version)
 	}
 	canonical, err := canonicalProjectID(identity.ProjectID)
@@ -278,7 +306,92 @@ func decodeIdentity(reader io.Reader) (Identity, error) {
 		return Identity{}, err
 	}
 	identity.ProjectID = canonical
+	if identity.Version == CurrentIdentityVersion {
+		identity.Name, err = ValidateProjectName(identity.Name)
+		if err != nil {
+			return Identity{}, err
+		}
+	} else if identity.Name != "" {
+		return Identity{}, errors.New("version 1 identity must not contain a name")
+	}
 	return identity, nil
+}
+
+// ValidateProjectName trims surrounding whitespace and rejects empty names
+// and control characters while allowing human-readable Unicode names.
+func ValidateProjectName(value string) (string, error) {
+	name := strings.TrimSpace(value)
+	if name == "" {
+		return "", errors.New("name is required and must not be empty")
+	}
+	if !utf8.ValidString(name) {
+		return "", errors.New("name must be valid UTF-8")
+	}
+	for _, r := range name {
+		if unicode.IsControl(r) {
+			return "", errors.New("name must not contain control characters")
+		}
+	}
+	return name, nil
+}
+
+// MigrateIdentity explicitly replaces a valid version 1 identity with version
+// 2. It preserves project_id and touches only .agent-board.json.
+func MigrateIdentity(root, name string) (Identity, error) {
+	canonicalRoot, err := canonicalDirectory(root)
+	if err != nil {
+		return Identity{}, domain.WrapError(err, CodeInvalidIdentity, "cannot locate project root for identity migration", false)
+	}
+	name, err = ValidateProjectName(name)
+	if err != nil {
+		return Identity{}, domain.WrapError(err, CodeInvalidIdentity, "project name is invalid", false)
+	}
+	path := filepath.Join(canonicalRoot, IdentityFileName)
+	info, err := os.Lstat(path)
+	if err != nil || !info.Mode().IsRegular() {
+		if err == nil {
+			err = errors.New("identity path is not a regular file")
+		}
+		return Identity{}, invalidIdentity(err)
+	}
+	old, err := readIdentity(path, true)
+	if err != nil {
+		return Identity{}, err
+	}
+	if old.Version != 1 {
+		return Identity{}, domain.NewError(CodeInvalidIdentity, "only version 1 identities can be migrated", false)
+	}
+	migrated := Identity{Version: CurrentIdentityVersion, ProjectID: old.ProjectID, Name: name}
+	contents, err := json.MarshalIndent(migrated, "", "  ")
+	if err != nil {
+		return Identity{}, err
+	}
+	contents = append(contents, '\n')
+	temporary, err := os.CreateTemp(canonicalRoot, IdentityFileName+".tmp-*")
+	if err != nil {
+		return Identity{}, err
+	}
+	temporaryPath := temporary.Name()
+	defer os.Remove(temporaryPath)
+	if err := temporary.Chmod(info.Mode().Perm()); err != nil {
+		temporary.Close()
+		return Identity{}, err
+	}
+	if _, err := temporary.Write(contents); err != nil {
+		temporary.Close()
+		return Identity{}, err
+	}
+	if err := temporary.Sync(); err != nil {
+		temporary.Close()
+		return Identity{}, err
+	}
+	if err := temporary.Close(); err != nil {
+		return Identity{}, err
+	}
+	if err := os.Rename(temporaryPath, path); err != nil {
+		return Identity{}, err
+	}
+	return migrated, nil
 }
 
 func canonicalProjectID(value string) (string, error) {

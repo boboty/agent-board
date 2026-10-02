@@ -38,7 +38,7 @@ func newFixture(t *testing.T) *fixture {
 	}
 	t.Cleanup(func() { service.Close(ctx) })
 	f := &fixture{t: t, ops: ops.New(service, "web")}
-	f.handler, err = NewHandler(f.ops, Info{ProjectID: testProjectID, Actor: "web"})
+	f.handler, err = NewHandler(f.ops, Info{ProjectName: "Readable Project", ProjectID: testProjectID, Actor: "web"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -46,6 +46,9 @@ func newFixture(t *testing.T) *fixture {
 	match := regexp.MustCompile(`name="csrf_token" value="([^"]+)"`).FindStringSubmatch(page)
 	if match == nil {
 		t.Fatal("page has no csrf token")
+	}
+	if !strings.Contains(page, "<h1>Readable Project</h1>") || !strings.Contains(page, "ID <code>"+testProjectID+"</code>") {
+		t.Fatal("page does not show the project name as primary identity and project_id as secondary information")
 	}
 	f.csrf = match[1]
 	return f
