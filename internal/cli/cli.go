@@ -27,6 +27,7 @@ import (
 	"github.com/boboty/agent-board/internal/projectconfig"
 	"github.com/boboty/agent-board/internal/web"
 	"github.com/boboty/agent-board/internal/workspace"
+	"github.com/boboty/agent-board/management"
 	"github.com/boboty/agent-board/workflow"
 )
 
@@ -67,10 +68,10 @@ Project:
   mcp config [HARNESS]         print stdio MCP configuration (generic, claude-code, codex, opencode)
   web [--addr 127.0.0.1:7420]  serve the Web Board on a loopback address
 
-Workflow Skill:
-  skill install                 install the embedded Skill for Claude Code, Codex, and OpenCode
-  skill check                   report supported paths and legacy Codex copies
-  skill show                    print the embedded Skill content
+Skills:
+  skill install [management|workflow] 安装一个或全部内嵌 Skill
+  skill check [management|workflow]   检查一个或全部 Skill 安装状态
+  skill show management|workflow      显示指定的内嵌 Skill
 
 Tasks:
   task create --title T [--description D] [--acceptance A]
@@ -216,11 +217,35 @@ type skillTarget struct {
 	Path    string `json:"path"`
 }
 
-func skillTargets(home string) []skillTarget {
-	claude := filepath.Join(home, ".claude", "skills", "agent-board-workflow", "SKILL.md")
+type skillDefinition struct {
+	Name    string
+	Content string
+}
+
+func skillDefinitions() []skillDefinition {
+	return []skillDefinition{{Name: "management", Content: management.Skill}, {Name: "workflow", Content: workflow.Skill}}
+}
+
+func selectSkills(selector string, required bool) ([]skillDefinition, error) {
+	if selector == "" {
+		if required {
+			return nil, usagef("skill show requires management or workflow (usage: aboard skill show management|workflow)")
+		}
+		return skillDefinitions(), nil
+	}
+	for _, skill := range skillDefinitions() {
+		if skill.Name == selector {
+			return []skillDefinition{skill}, nil
+		}
+	}
+	return nil, usagef("unknown Skill %q (choose management or workflow)", selector)
+}
+
+func skillTargets(home, skillName string) []skillTarget {
+	claude := filepath.Join(home, ".claude", "skills", "agent-board-"+skillName, "SKILL.md")
 	return []skillTarget{
 		{"claude-code", claude},
-		{"codex", filepath.Join(home, ".agents", "skills", "agent-board-workflow", "SKILL.md")},
+		{"codex", filepath.Join(home, ".agents", "skills", "agent-board-"+skillName, "SKILL.md")},
 		{"opencode", claude},
 	}
 }
@@ -235,33 +260,47 @@ type skillInstallStatus struct {
 }
 
 func runSkillInstall(args []string, env Env) error {
-	if len(args) != 0 {
-		return usagef("skill install: unexpected arguments")
+	if len(args) > 1 {
+		return usagef("skill install accepts at most one selector: management or workflow")
 	}
-	targets := uniqueSkillTargets(skillTargets(env.Home))
-	statuses := make([]skillInstallStatus, 0, len(targets)+1)
-	for _, target := range targets {
-		status, err := installSkill(target)
-		if err != nil {
-			return err
-		}
-		statuses = append(statuses, skillInstallStatus{skillTarget: target, Status: status})
+	selector := ""
+	if len(args) == 1 {
+		selector = args[0]
 	}
-	legacy, err := inspectLegacySkill(env.Home)
+	selected, err := selectSkills(selector, false)
 	if err != nil {
 		return err
 	}
-	if legacy.Status == "managed-legacy" {
-		if err := os.Remove(legacy.Path); err != nil {
-			return fmt.Errorf("remove legacy Codex skill %s: %w", legacy.Path, err)
+	allStatuses := make([]map[string]any, 0, len(selected))
+	for _, skill := range selected {
+		targets := uniqueSkillTargets(skillTargets(env.Home, skill.Name))
+		statuses := make([]skillInstallStatus, 0, len(targets)+1)
+		for _, target := range targets {
+			status, err := installSkill(target, skill.Content)
+			if err != nil {
+				return err
+			}
+			statuses = append(statuses, skillInstallStatus{skillTarget: target, Status: status})
 		}
-		removeEmptySkillDirs(filepath.Dir(legacy.Path), filepath.Join(env.Home, ".codex", "skills"))
-		legacy.Status = "clear"
-	} else if legacy.Status == "missing" {
-		legacy.Status = "clear"
+		if skill.Name == "workflow" {
+			legacy, err := inspectLegacySkill(env.Home)
+			if err != nil {
+				return err
+			}
+			if legacy.Status == "managed-legacy" {
+				if err := os.Remove(legacy.Path); err != nil {
+					return fmt.Errorf("remove legacy Codex skill %s: %w", legacy.Path, err)
+				}
+				removeEmptySkillDirs(filepath.Dir(legacy.Path), filepath.Join(env.Home, ".codex", "skills"))
+				legacy.Status = "clear"
+			} else if legacy.Status == "missing" {
+				legacy.Status = "clear"
+			}
+			statuses = append(statuses, legacy)
+		}
+		allStatuses = append(allStatuses, map[string]any{"skill": skill.Name, "status": statuses})
 	}
-	statuses = append(statuses, legacy)
-	return writeJSON(env.Stdout, map[string]any{"skill": "agent-board-workflow", "status": statuses})
+	return writeJSON(env.Stdout, map[string]any{"skills": allStatuses})
 }
 
 func uniqueSkillTargets(targets []skillTarget) []skillTarget {
@@ -276,10 +315,10 @@ func uniqueSkillTargets(targets []skillTarget) []skillTarget {
 	return unique
 }
 
-func installSkill(target skillTarget) (string, error) {
+func installSkill(target skillTarget, content string) (string, error) {
 	contents, err := os.ReadFile(target.Path)
 	switch {
-	case err == nil && string(contents) == workflow.Skill:
+	case err == nil && string(contents) == content:
 		return "current", nil
 	case err == nil:
 		return "different", nil
@@ -289,7 +328,7 @@ func installSkill(target skillTarget) (string, error) {
 	if err := os.MkdirAll(filepath.Dir(target.Path), 0o755); err != nil {
 		return "", fmt.Errorf("create %s skill directory: %w", target.Harness, err)
 	}
-	if err := os.WriteFile(target.Path, []byte(workflow.Skill), 0o644); err != nil {
+	if err := os.WriteFile(target.Path, []byte(content), 0o644); err != nil {
 		return "", fmt.Errorf("install %s skill at %s: %w", target.Harness, target.Path, err)
 	}
 	return "current", nil
@@ -305,24 +344,36 @@ func removeEmptySkillDirs(dir, stop string) {
 }
 
 func runSkillCheck(args []string, env Env) error {
-	if len(args) != 0 {
-		return usagef("skill check: unexpected arguments")
+	if len(args) > 1 {
+		return usagef("skill check accepts at most one selector: management or workflow")
 	}
-	statuses, err := checkSkillStatus(env.Home)
+	selector := ""
+	if len(args) == 1 {
+		selector = args[0]
+	}
+	selected, err := selectSkills(selector, false)
 	if err != nil {
 		return err
 	}
-	return writeJSON(env.Stdout, map[string]any{"skill": "agent-board-workflow", "status": statuses})
+	allStatuses := make([]map[string]any, 0, len(selected))
+	for _, skill := range selected {
+		statuses, err := checkSkillStatus(env.Home, skill)
+		if err != nil {
+			return err
+		}
+		allStatuses = append(allStatuses, map[string]any{"skill": skill.Name, "status": statuses})
+	}
+	return writeJSON(env.Stdout, map[string]any{"skills": allStatuses})
 }
 
-func checkSkillStatus(home string) ([]skillInstallStatus, error) {
-	targets := skillTargets(home)
+func checkSkillStatus(home string, skill skillDefinition) ([]skillInstallStatus, error) {
+	targets := skillTargets(home, skill.Name)
 	statuses := make([]skillInstallStatus, 0, len(targets))
 	for _, target := range targets {
 		contents, err := os.ReadFile(target.Path)
 		status := "missing"
 		switch {
-		case err == nil && string(contents) == workflow.Skill:
+		case err == nil && string(contents) == skill.Content:
 			status = "current"
 		case err == nil:
 			status = "different"
@@ -331,12 +382,14 @@ func checkSkillStatus(home string) ([]skillInstallStatus, error) {
 		}
 		statuses = append(statuses, skillInstallStatus{skillTarget: target, Status: status})
 	}
-	legacy, err := inspectLegacySkill(home)
-	if err != nil {
-		return nil, err
-	}
-	if legacy.Status != "missing" {
-		statuses = append(statuses, legacy)
+	if skill.Name == "workflow" {
+		legacy, err := inspectLegacySkill(home)
+		if err != nil {
+			return nil, err
+		}
+		if legacy.Status != "missing" {
+			statuses = append(statuses, legacy)
+		}
 	}
 	return statuses, nil
 }
@@ -379,10 +432,14 @@ func legacySkillPathHasSymlink(home string) bool {
 }
 
 func runSkillShow(args []string, env Env) error {
-	if len(args) != 0 {
-		return usagef("skill show: unexpected arguments")
+	if len(args) != 1 {
+		return usagef("skill show requires management or workflow (usage: aboard skill show management|workflow)")
 	}
-	_, err := io.WriteString(env.Stdout, workflow.Skill)
+	selected, err := selectSkills(args[0], true)
+	if err != nil {
+		return err
+	}
+	_, err = io.WriteString(env.Stdout, selected[0].Content)
 	return err
 }
 
@@ -574,54 +631,76 @@ func runDoctor(ctx context.Context, args []string, env Env) error {
 		lines = append(lines, doctorLine{"Binary", "OK", fmt.Sprintf("%s (version %s)", executable, version), ""})
 	}
 
-	skillStatuses, err := checkSkillStatus(env.Home)
-	if err != nil {
-		lines = append(lines, doctorLine{"Skill", "PROBLEM", "无法读取 Skill 安装状态: " + err.Error(), "检查当前用户对 Skill 目录的读取权限。"})
-		healthy = false
-	} else {
-		current := 0
-		different := 0
+	var skillDetails []string
+	skillStatusError := ""
+	for _, skill := range skillDefinitions() {
+		skillStatuses, statusErr := checkSkillStatus(env.Home, skill)
+		if statusErr != nil {
+			skillStatusError = statusErr.Error()
+			break
+		}
+		current, different := 0, 0
+		var states []string
 		legacy := ""
-		for _, status := range skillStatuses {
-			if status.Status == "current" {
-				current++
-			} else if status.Status == "different" {
-				different++
-			} else if status.Status == "managed-legacy" || status.Status == "unmanaged-legacy" {
-				legacy = status.Status + ": " + status.Path
-			}
-		}
-		status, detail, next := "OK", fmt.Sprintf("Agent Board Workflow Skill 已安装且匹配 (%d/3 Harness)", current), ""
-		var harnessStates []string
 		for _, item := range skillStatuses {
+			if item.Status == "current" {
+				current++
+			}
+			if item.Status == "different" {
+				different++
+			}
 			if item.Harness == "claude-code" || item.Harness == "codex" || item.Harness == "opencode" {
-				harnessStates = append(harnessStates, item.Harness+"="+item.Status)
+				states = append(states, item.Harness+"="+item.Status)
+			}
+			if item.Status == "managed-legacy" || item.Status == "unmanaged-legacy" {
+				legacy = item.Status + ": " + item.Path
 			}
 		}
-		detail += "; " + strings.Join(harnessStates, ", ")
+		label := "Workflow"
+		if skill.Name == "management" {
+			label = "Management"
+		}
+		purpose := "指导 Task 执行、交付和验证"
+		if skill.Name == "management" {
+			purpose = "指导 Task 定义和 READY 优先级（使用 CLI，MCP 可选）"
+		}
+		state := fmt.Sprintf("%s Skill — %s; %d/3 Harness (%s)", label, purpose, current, strings.Join(states, ", "))
+		if different > 0 {
+			state += fmt.Sprintf("; %d 处内容与 binary 不同", different)
+		}
 		if current < 3 {
-			status = "MISSING"
-			healthy = false
-			if different > 0 {
-				status = "PROBLEM"
-				detail = fmt.Sprintf("%d/3 Harness 的 Skill 与当前 binary 不一致", different)
-			} else {
-				detail = fmt.Sprintf("仅 %d/3 Harness 安装了当前 Skill", current)
-			}
-			detail += "; " + strings.Join(harnessStates, ", ")
-			next = "运行 `aboard skill install` 安装三个受支持 Harness 的 Skill；不同内容会保留并报告。"
+			state += "; 有 Harness 尚未安装"
 		}
 		if legacy != "" {
-			status = "PROBLEM"
-			healthy = false
-			detail += "; 检测到旧路径 " + legacy
-			if strings.HasPrefix(legacy, "managed-legacy:") {
-				next = "运行 `aboard skill install` 备份前确认后移除与当前 canonical Skill 完全一致的旧副本。"
-			} else {
-				next = "检查该路径是否为用户自定义 Skill；确认后手动移走或合并，aboard 不会覆盖或删除它。"
+			state += "; 旧路径 " + legacy
+		}
+		skillDetails = append(skillDetails, state)
+	}
+	if skillStatusError != "" {
+		lines = append(lines, doctorLine{"Skills", "PROBLEM", "无法读取 Skill 安装状态: " + skillStatusError, "检查当前用户对 Skill 目录的读取权限。"})
+		healthy = false
+	} else {
+		status, next := "OK", ""
+		for _, detail := range skillDetails {
+			if strings.Contains(detail, "内容与 binary 不同") || strings.Contains(detail, "旧路径") {
+				status = "PROBLEM"
+			}
+			if strings.Contains(detail, "有 Harness 尚未安装") && status == "OK" {
+				status = "MISSING"
 			}
 		}
-		lines = append(lines, doctorLine{"Skill", status, detail, next})
+		if status != "OK" {
+			healthy = false
+			next = "运行 `aboard skill check management` 或 `aboard skill check workflow` 检查对应内容；安装时可用 `aboard skill install management|workflow`。"
+			for _, detail := range skillDetails {
+				if strings.Contains(detail, "旧路径 unmanaged-legacy:") {
+					next += " 检查旧路径是否为用户自定义内容；确认后手动移走或合并，aboard 不会覆盖或删除它。"
+				} else if strings.Contains(detail, "旧路径 managed-legacy:") {
+					next += " Workflow 旧副本与 canonical 内容一致，可运行 `aboard skill install workflow` 移除。"
+				}
+			}
+		}
+		lines = append(lines, doctorLine{"Skills", status, strings.Join(skillDetails, "; "), next})
 	}
 
 	project, projectErr := projectconfig.Discover(c.dir)

@@ -5,7 +5,8 @@ Agent Board is a harness-independent shared task board for AI-assisted software 
 It has two intentionally separate parts:
 
 1. **Workflow Skill** — defines how Orchestrator, Developer, and Independent Verifier cooperate.
-2. **Shared Task Board** — records tasks, explicit task-level state, execution facts, delivery evidence, handoffs, and audit history outside the repository/worktree.
+2. **Management Skill** — guides authorized Humans and delegates in defining, editing, queueing, and prioritizing Tasks without starting execution.
+3. **Shared Task Board** — records tasks, explicit task-level state, execution facts, delivery evidence, handoffs, and audit history outside the repository/worktree.
 
 ## Core boundary
 
@@ -93,7 +94,7 @@ invokes any operation through the same dispatch as MCP `tools/call`. The
 default actor is `$AGENT_BOARD_ACTOR`, overridden by `--actor`.
 
 `aboard doctor` prints human-readable status for the binary/version,
-Workflow Skill, project identity, Board database file, and MCP operation
+Management and Workflow Skills, project identity, Board database file, and MCP operation
 catalog. Exit status 0 means no problem was detected by its read-only checks,
 1 means a component needs attention, and 2 means invalid usage. It does not
 install the Skill, initialize projects, connect to SQLite, or run migrations.
@@ -102,37 +103,53 @@ recognizable SQLite format; `Board PRESENT` means those file checks passed, not
 that the database was opened or its contents validated. MCP status confirms
 that the operation definitions are loaded; it does not start an MCP service.
 
-### Workflow Skill
+### Skills
 
-`workflow/SKILL.md` is the canonical Skill source and is embedded in the
-`aboard` binary. A binary can install or display it without access to the
-source repository:
+The canonical sources are `management/SKILL.md` (`agent-board-management`)
+and `workflow/SKILL.md` (`agent-board-workflow`); both are embedded in the
+`aboard` binary and can be installed or displayed without the source
+repository. `skill install` and `skill check` default to both Skills, or take
+`management` or `workflow` to select one. `skill show` requires one selector.
+Installing one Skill does not require the other to be installed:
 
 ```bash
 aboard skill install
 aboard skill check
-aboard skill show
+aboard skill install management
+aboard skill check management
+aboard skill show management
+aboard skill show workflow
 ```
 
-Install writes the same embedded content to Claude Code and OpenCode at
-`~/.claude/skills/agent-board-workflow/SKILL.md`, and to Codex at
-`~/.agents/skills/agent-board-workflow/SKILL.md`. Claude Code's personal path
-is `~/.claude/skills`; Codex's documented user path is `~/.agents/skills`.
-OpenCode scans both directories, and its current CLI resolves a same-name
-skill from these compatibility sources once (the Claude-compatible location
-wins). The old `~/.codex/skills` copy is also scanned by Codex when it is
-under `CODEX_HOME`, so keeping it alongside `~/.agents/skills` caused Codex to
-list the Skill twice. See the [Claude Code skills locations](https://code.claude.com/docs/en/skills),
+Install writes each Skill to Claude Code and OpenCode at
+`~/.claude/skills/agent-board-{management,workflow}/SKILL.md`, and to Codex at
+`~/.agents/skills/agent-board-{management,workflow}/SKILL.md`. Claude Code's
+personal path is `~/.claude/skills`; Codex's documented user path is
+`~/.agents/skills`. OpenCode scans both directories, and its current CLI
+resolves a same-name skill from these compatibility sources once (the
+Claude-compatible location wins). Each Skill has one canonical path per
+Harness discovery arrangement; its Claude Code/OpenCode path is shared, not
+duplicated. The old `~/.codex/skills/agent-board-workflow` copy is also scanned
+by Codex when it is under `CODEX_HOME`, so keeping it alongside
+`~/.agents/skills` caused Workflow to be listed twice. See the [Claude Code skills locations](https://code.claude.com/docs/en/skills),
 [Codex local skill locations](https://learn.chatgpt.com/docs/build-skills), and
 [OpenCode skill discovery](https://opencode.ai/docs/skills).
 
-`skill check` returns JSON status and paths for each Harness, plus a legacy
-Codex path when present. The old `~/.codex/skills/agent-board-workflow/SKILL.md`
-path is no longer installed. `skill install` removes that file only when its
-contents exactly match the embedded canonical Skill; a different file is kept
-and reported with a manual next step. Install does not overwrite different
-content at a supported path. Re-running install on matching files is
-idempotent. `skill show` prints the embedded Markdown as plain text.
+`skill check` returns JSON status and paths grouped by Skill and Harness.
+Workflow installation also removes the old Codex path only when its contents
+exactly match the embedded Workflow Skill; different files are kept and
+reported. Install does not overwrite different content at a supported path.
+Re-running install on matching files is idempotent. `skill show` prints the
+selected embedded Markdown as plain text.
+
+Use the Management Skill for requests to record or prioritize work. It works
+with the CLI even when MCP is unavailable, using `aboard task create/get/update`,
+`aboard task queue`, and `aboard ready list/reorder`; it also documents the
+corresponding optional MCP operations (`create_task`, `get_task`,
+`update_task`, `queue_task`, `list_ready`, and `reorder_ready`). Queueing an
+accepted Task appends it to the READY order. Neither recording nor queueing
+starts Task execution. Requests to implement or verify work belong to the
+independent Workflow Skill.
 
 ### Web Board
 

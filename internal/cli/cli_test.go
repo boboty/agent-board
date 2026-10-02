@@ -24,6 +24,7 @@ import (
 	"github.com/boboty/agent-board/internal/ops"
 	"github.com/boboty/agent-board/internal/projectconfig"
 	"github.com/boboty/agent-board/internal/workspace"
+	"github.com/boboty/agent-board/management"
 	"github.com/boboty/agent-board/workflow"
 )
 
@@ -142,39 +143,47 @@ func TestInitAndCheck(t *testing.T) {
 func TestSkillCommands(t *testing.T) {
 	home := t.TempDir()
 	h := &harness{t: t, env: Env{Home: home}}
-	targets := []struct {
-		harness string
-		path    string
-	}{
-		{"claude-code", filepath.Join(home, ".claude", "skills", "agent-board-workflow", "SKILL.md")},
-		{"codex", filepath.Join(home, ".agents", "skills", "agent-board-workflow", "SKILL.md")},
-		{"opencode", filepath.Join(home, ".claude", "skills", "agent-board-workflow", "SKILL.md")},
+	targets := func(skill string) []struct{ harness, path string } {
+		return []struct{ harness, path string }{
+			{"claude-code", filepath.Join(home, ".claude", "skills", "agent-board-"+skill, "SKILL.md")},
+			{"codex", filepath.Join(home, ".agents", "skills", "agent-board-"+skill, "SKILL.md")},
+			{"opencode", filepath.Join(home, ".claude", "skills", "agent-board-"+skill, "SKILL.md")},
+		}
 	}
-
-	check := func(want string) {
+	check := func(skill, want string) {
 		t.Helper()
 		result := decodeJSON[struct {
-			Skill  string `json:"skill"`
-			Status []struct {
-				Harness string `json:"harness"`
-				Path    string `json:"path"`
-				Status  string `json:"status"`
-			} `json:"status"`
-		}](t, h.ok("skill", "check"))
-		if result.Skill != "agent-board-workflow" || len(result.Status) != len(targets) {
+			Skills []struct {
+				Skill  string `json:"skill"`
+				Status []struct {
+					Harness string `json:"harness"`
+					Path    string `json:"path"`
+					Status  string `json:"status"`
+				} `json:"status"`
+			} `json:"skills"`
+		}](t, h.ok("skill", "check", skill))
+		if len(result.Skills) != 1 || result.Skills[0].Skill != skill || len(result.Skills[0].Status) != len(targets(skill)) {
 			t.Fatalf("skill check: %+v", result)
 		}
-		for i, got := range result.Status {
-			if got.Harness != targets[i].harness || got.Path != targets[i].path || got.Status != want {
-				t.Fatalf("skill status[%d] = %+v, want %s at %s", i, got, want, targets[i].path)
+		for i, got := range result.Skills[0].Status {
+			if got.Harness != targets(skill)[i].harness || got.Path != targets(skill)[i].path || got.Status != want {
+				t.Fatalf("skill status[%d] = %+v, want %s at %s", i, got, want, targets(skill)[i].path)
 			}
 		}
 	}
 
-	check("missing")
-	show := h.ok("skill", "show")
+	check("workflow", "missing")
+	check("management", "missing")
+	if _, _, stderr := h.run("", "skill", "show"); !strings.Contains(stderr, "requires management or workflow") {
+		t.Fatalf("skill show without selector lacks usage guidance: %q", stderr)
+	}
+	show := h.ok("skill", "show", "workflow")
 	if show != workflow.Skill {
 		t.Fatal("skill show differs from embedded content")
+	}
+	managementShow := h.ok("skill", "show", "management")
+	if managementShow != management.Skill || !strings.Contains(managementShow, "name: agent-board-management") {
+		t.Fatal("management show differs from embedded content or lacks frontmatter")
 	}
 	legacy := filepath.Join(home, ".codex", "skills", "agent-board-workflow", "SKILL.md")
 	if err := os.MkdirAll(filepath.Dir(legacy), 0o755); err != nil {
@@ -183,45 +192,54 @@ func TestSkillCommands(t *testing.T) {
 	if err := os.WriteFile(legacy, []byte(show), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	install := h.ok("skill", "install")
-	check("current")
+	install := h.ok("skill", "install", "workflow")
+	check("workflow", "current")
 	if _, err := os.Stat(legacy); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("managed legacy path remains: %v", err)
 	}
-	if repeated := h.ok("skill", "install"); repeated != install {
+	if repeated := h.ok("skill", "install", "workflow"); repeated != install {
 		t.Fatalf("repeat install differs:\nfirst %s\nnext %s", install, repeated)
 	}
-	for _, target := range targets {
+	for _, target := range targets("workflow") {
 		contents, err := os.ReadFile(target.path)
 		if err != nil || string(contents) != show {
 			t.Fatalf("installed %s skill mismatch: %v", target.harness, err)
 		}
 	}
-	if err := os.WriteFile(targets[1].path, []byte("stale"), 0o644); err != nil {
+	if err := os.WriteFile(targets("workflow")[1].path, []byte("stale"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	result := decodeJSON[struct {
-		Status []struct {
-			Status string `json:"status"`
-		} `json:"status"`
-	}](t, h.ok("skill", "check"))
-	if result.Status[1].Status != "different" {
-		t.Fatalf("different content status = %+v", result.Status)
+		Skills []struct {
+			Status []struct {
+				Status string `json:"status"`
+			} `json:"status"`
+		} `json:"skills"`
+	}](t, h.ok("skill", "check", "workflow"))
+	if result.Skills[0].Status[0].Status != "current" || result.Skills[0].Status[1].Status != "different" {
+		t.Fatalf("different content status = %+v", result.Skills[0].Status)
 	}
-	h.ok("skill", "install")
+	h.ok("skill", "install", "workflow")
 	result = decodeJSON[struct {
-		Status []struct {
-			Status string `json:"status"`
-		} `json:"status"`
-	}](t, h.ok("skill", "check"))
-	if result.Status[1].Status != "different" {
-		t.Fatalf("install overwrote unmanaged content: %+v", result.Status)
+		Skills []struct {
+			Status []struct {
+				Status string `json:"status"`
+			} `json:"status"`
+		} `json:"skills"`
+	}](t, h.ok("skill", "check", "workflow"))
+	if result.Skills[0].Status[1].Status != "different" {
+		t.Fatalf("install overwrote unmanaged content: %+v", result.Skills[0].Status)
 	}
-	if err := os.WriteFile(targets[1].path, []byte(show), 0o644); err != nil {
+	if err := os.WriteFile(targets("workflow")[1].path, []byte(show), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	check("current")
+	check("workflow", "current")
 	h.fails(ExitUsage, CodeUsage, "skill", "show", "extra")
+	all := h.ok("skill", "install")
+	if !strings.Contains(all, `"skill": "management"`) || !strings.Contains(all, `"skill": "workflow"`) {
+		t.Fatalf("default install did not include both: %s", all)
+	}
+	check("management", "current")
 }
 
 func TestSkillInstallAndCheckPreserveUnmanagedSkillFiles(t *testing.T) {
@@ -261,7 +279,7 @@ func TestDoctorReportsHealthyAndMissingComponentsWithoutWriting(t *testing.T) {
 	h := newHarness(t)
 	h.ok("skill", "install")
 	output := h.ok("doctor")
-	for _, want := range []string{"Binary   OK", "Skill    OK", "Project  OK", "Board    PRESENT", "数据库文件存在，SQLite 格式可识别", "MCP      OK", "个操作及输入定义已加载（未启动 MCP 服务）"} {
+	for _, want := range []string{"Binary   OK", "Skills   OK", "Management Skill — 指导 Task 定义和 READY 优先级（使用 CLI，MCP 可选）", "Workflow Skill — 指导 Task 执行、交付和验证", "Project  OK", "Board    PRESENT", "数据库文件存在，SQLite 格式可识别", "MCP      OK", "个操作及输入定义已加载（未启动 MCP 服务）"} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("doctor output %q does not contain %q", output, want)
 		}
@@ -286,7 +304,7 @@ func TestDoctorReportsHealthyAndMissingComponentsWithoutWriting(t *testing.T) {
 		t.Fatal(err)
 	}
 	code, out, stderr := h.run("", "doctor")
-	if code != ExitError || stderr != "" || !strings.Contains(out, "Skill    MISSING") || !strings.Contains(out, "仅 1/3 Harness") || !strings.Contains(out, "claude-code=missing") || !strings.Contains(out, "opencode=missing") || !strings.Contains(out, "Next step:") {
+	if code != ExitError || stderr != "" || !strings.Contains(out, "Skills   MISSING") || !strings.Contains(out, "Workflow Skill — 指导 Task 执行、交付和验证; 1/3 Harness") || !strings.Contains(out, "claude-code=missing") || !strings.Contains(out, "opencode=missing") || !strings.Contains(out, "Next step:") {
 		t.Fatalf("missing Skill doctor exit %d stdout %q stderr %q", code, out, stderr)
 	}
 	h.ok("skill", "install")
@@ -295,7 +313,7 @@ func TestDoctorReportsHealthyAndMissingComponentsWithoutWriting(t *testing.T) {
 	}
 	before = snapshotTree(t, h.env.Home, h.repo)
 	code, out, stderr = h.run("", "doctor")
-	if code != ExitError || stderr != "" || !strings.Contains(out, "Skill    PROBLEM") || !strings.Contains(out, "codex=different") || !strings.Contains(out, "Next step:") {
+	if code != ExitError || stderr != "" || !strings.Contains(out, "Skills   PROBLEM") || !strings.Contains(out, "codex=different") || !strings.Contains(out, "Next step:") {
 		t.Fatalf("different Skill doctor exit %d stdout %q stderr %q", code, out, stderr)
 	}
 	if after := snapshotTree(t, h.env.Home, h.repo); !reflect.DeepEqual(before, after) {
@@ -337,7 +355,7 @@ func TestDoctorOutsideProjectAndWithMissingSkill(t *testing.T) {
 	if code != ExitError || stderr != "" {
 		t.Fatalf("doctor exit %d stdout %q stderr %q", code, output, stderr)
 	}
-	for _, want := range []string{"Binary   OK", "Skill    MISSING", "Project  MISSING", "Board    MISSING", "MCP      OK", "aboard init", "aboard skill install"} {
+	for _, want := range []string{"Binary   OK", "Skills   MISSING", "Management Skill", "Workflow Skill", "Project  MISSING", "Board    MISSING", "MCP      OK", "aboard init", "aboard skill install"} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("doctor output %q does not contain %q", output, want)
 		}
