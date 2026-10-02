@@ -115,9 +115,12 @@ JSON status (`missing`, `current`, or `different`) and paths for all three;
 
 ### Web Board
 
-`aboard web` serves a browser Board for people on a loopback address
-(default `127.0.0.1:7420`; `--addr 127.0.0.1:0` picks a free port) and prints
-its URL as JSON. Four columns — READY, IN PROGRESS, DONE, BLOCKED — come
+`aboard web` serves a browser Board for people on a loopback address and
+prints its URL as JSON. Without `--addr` it listens on `127.0.0.1` with a free
+port chosen by the OS, so several projects can run `aboard web` at the same
+time; read the actual address from the printed `url`. `--addr 127.0.0.1:PORT`
+binds exactly that port and fails if it is taken (it never picks another);
+`--addr 127.0.0.1:0` is the same as the default. Four columns — READY, IN PROGRESS, DONE, BLOCKED — come
 directly from each task's recorded `state`; unqueued tasks are listed
 separately, not as a column. A task drawer shows content, facts, and audit
 history, and offers edit, queue, set state, and record fact; READY cards move

@@ -42,7 +42,7 @@ const (
 // ServerOptions configures the loopback-only HTTP lifecycle.
 type ServerOptions struct {
 	// Address is a literal loopback address such as 127.0.0.1:7420; port 0
-	// picks a free port.
+	// picks a free port, reported by the listener passed to OnListen.
 	Address         string
 	Handler         http.Handler
 	Logger          *slog.Logger

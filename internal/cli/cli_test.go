@@ -7,7 +7,9 @@ import (
 	"go/parser"
 	"go/token"
 	"io"
+	"net"
 	"net/http"
+	neturl "net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -432,41 +434,122 @@ func TestMCPCommand(t *testing.T) {
 	}
 }
 
+type webStart struct {
+	URL       string `json:"url"`
+	ProjectID string `json:"project_id"`
+	Actor     string `json:"actor"`
+}
+
+// startWeb runs `web args...` against the harness project and returns the
+// start line it printed. The server stops when the test ends.
+func (h *harness) startWeb(args ...string) webStart {
+	h.t.Helper()
+	ctx, cancel := context.WithCancel(context.Background())
+	reader, writer := io.Pipe()
+	env := h.env
+	env.Stdin, env.Stdout, env.Stderr = strings.NewReader(""), writer, io.Discard
+	done := make(chan int, 1)
+	go func() { done <- Run(ctx, append([]string{"web"}, args...), env) }()
+	h.t.Cleanup(func() {
+		cancel()
+		if code := <-done; code != ExitOK {
+			h.t.Errorf("web exited %d", code)
+		}
+	})
+	var started webStart
+	if err := json.NewDecoder(reader).Decode(&started); err != nil {
+		h.t.Fatal(err)
+	}
+	return started
+}
+
+func (h *harness) getPage(url string) string {
+	h.t.Helper()
+	response, err := http.Get(url)
+	if err != nil {
+		h.t.Fatal(err)
+	}
+	defer response.Body.Close()
+	body, _ := io.ReadAll(response.Body)
+	if response.StatusCode != http.StatusOK {
+		h.t.Fatalf("GET %s: status %d", url, response.StatusCode)
+	}
+	return string(body)
+}
+
+// loopbackPort returns the non-zero port of a started web URL, requiring a
+// loopback host.
+func loopbackPort(t *testing.T, started webStart) string {
+	t.Helper()
+	parsed, err := neturl.Parse(started.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if parsed.Hostname() != "127.0.0.1" || parsed.Port() == "" || parsed.Port() == "0" {
+		t.Fatalf("url %q is not a loopback URL with a real port", started.URL)
+	}
+	return parsed.Port()
+}
+
 func TestWebCommand(t *testing.T) {
 	h := newHarness(t)
 	h.fails(ExitUsage, CodeUsage, "web", "--addr", "0.0.0.0:7420")
 	h.fails(ExitUsage, CodeUsage, "web", "--addr", "localhost:7420")
 
 	h.env.Actor = ""
-	ctx, cancel := context.WithCancel(context.Background())
-	reader, writer := io.Pipe()
-	env := h.env
-	env.Stdin, env.Stdout, env.Stderr = strings.NewReader(""), writer, io.Discard
-	done := make(chan int, 1)
-	go func() { done <- Run(ctx, []string{"web", "--addr", "127.0.0.1:0"}, env) }()
-	var started struct {
-		URL       string `json:"url"`
-		ProjectID string `json:"project_id"`
-		Actor     string `json:"actor"`
-	}
-	if err := json.NewDecoder(reader).Decode(&started); err != nil {
-		t.Fatal(err)
-	}
-	if !strings.HasPrefix(started.URL, "http://127.0.0.1:") || started.Actor != DefaultWebActor || started.ProjectID == "" {
+	started := h.startWeb("--addr", "127.0.0.1:0")
+	loopbackPort(t, started)
+	if started.Actor != DefaultWebActor || started.ProjectID == "" {
 		t.Fatalf("started %+v", started)
 	}
-	response, err := http.Get(started.URL)
+	if body := h.getPage(started.URL); !strings.Contains(body, started.ProjectID) {
+		t.Fatal("page does not show the project")
+	}
+}
+
+// Without --addr the Web Board binds a free loopback port chosen by the OS,
+// so two projects can serve at once and each shows only its own Board.
+func TestWebDefaultAddressIsDynamicAndPerProject(t *testing.T) {
+	first, second := newHarness(t), newHarness(t)
+	first.ok("task", "create", "--title", "alpha-only-task")
+	second.ok("task", "create", "--title", "beta-only-task")
+
+	a, b := first.startWeb(), second.startWeb()
+	if loopbackPort(t, a) == loopbackPort(t, b) || a.URL == b.URL {
+		t.Fatalf("both projects share an address: %s %s", a.URL, b.URL)
+	}
+	if a.ProjectID == b.ProjectID {
+		t.Fatalf("projects share an identity %s", a.ProjectID)
+	}
+	pageA, pageB := first.getPage(a.URL), second.getPage(b.URL)
+	if !strings.Contains(pageA, "alpha-only-task") || strings.Contains(pageA, "beta-only-task") {
+		t.Fatal("first Board is not isolated")
+	}
+	if !strings.Contains(pageB, "beta-only-task") || strings.Contains(pageB, "alpha-only-task") {
+		t.Fatal("second Board is not isolated")
+	}
+}
+
+// An explicit --addr keeps its meaning: the named port is bound, and a taken
+// port is an error rather than a silent move to another port.
+func TestWebExplicitAddress(t *testing.T) {
+	h := newHarness(t)
+	probe, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
 	}
-	body, _ := io.ReadAll(response.Body)
-	response.Body.Close()
-	if response.StatusCode != http.StatusOK || !strings.Contains(string(body), started.ProjectID) {
-		t.Fatalf("status %d", response.StatusCode)
+	port := strconv.Itoa(probe.Addr().(*net.TCPAddr).Port)
+	probe.Close()
+
+	started := h.startWeb("--addr", "127.0.0.1:"+port)
+	if started.URL != "http://127.0.0.1:"+port+"/" {
+		t.Fatalf("url %q, want port %s", started.URL, port)
 	}
-	cancel()
-	if code := <-done; code != ExitOK {
-		t.Fatalf("web exited %d", code)
+	h.getPage(started.URL)
+
+	code, stdout, stderr := h.run("", "web", "--addr", "127.0.0.1:"+port)
+	if code == ExitOK || stdout != "" || !strings.Contains(stderr, "address already in use") {
+		t.Fatalf("occupied port: exit %d stdout %q stderr %q", code, stdout, stderr)
 	}
 }
 
