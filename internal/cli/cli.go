@@ -69,7 +69,7 @@ Project:
 
 Workflow Skill:
   skill install                 install the embedded Skill for Claude Code, Codex, and OpenCode
-  skill check                   report whether each supported Harness has the embedded Skill
+  skill check                   report supported paths and legacy Codex copies
   skill show                    print the embedded Skill content
 
 Tasks:
@@ -217,11 +217,16 @@ type skillTarget struct {
 }
 
 func skillTargets(home string) []skillTarget {
+	claude := filepath.Join(home, ".claude", "skills", "agent-board-workflow", "SKILL.md")
 	return []skillTarget{
-		{"claude-code", filepath.Join(home, ".claude", "skills", "agent-board-workflow", "SKILL.md")},
-		{"codex", filepath.Join(home, ".codex", "skills", "agent-board-workflow", "SKILL.md")},
-		{"opencode", filepath.Join(home, ".agents", "skills", "agent-board-workflow", "SKILL.md")},
+		{"claude-code", claude},
+		{"codex", filepath.Join(home, ".agents", "skills", "agent-board-workflow", "SKILL.md")},
+		{"opencode", claude},
 	}
+}
+
+func legacySkillTarget(home string) skillTarget {
+	return skillTarget{"codex-legacy", filepath.Join(home, ".codex", "skills", "agent-board-workflow", "SKILL.md")}
 }
 
 type skillInstallStatus struct {
@@ -233,18 +238,70 @@ func runSkillInstall(args []string, env Env) error {
 	if len(args) != 0 {
 		return usagef("skill install: unexpected arguments")
 	}
-	targets := skillTargets(env.Home)
-	statuses := make([]skillInstallStatus, 0, len(targets))
+	targets := uniqueSkillTargets(skillTargets(env.Home))
+	statuses := make([]skillInstallStatus, 0, len(targets)+1)
 	for _, target := range targets {
-		if err := os.MkdirAll(filepath.Dir(target.Path), 0o755); err != nil {
-			return fmt.Errorf("create %s skill directory: %w", target.Harness, err)
+		status, err := installSkill(target)
+		if err != nil {
+			return err
 		}
-		if err := os.WriteFile(target.Path, []byte(workflow.Skill), 0o644); err != nil {
-			return fmt.Errorf("install %s skill: %w", target.Harness, err)
-		}
-		statuses = append(statuses, skillInstallStatus{skillTarget: target, Status: "installed"})
+		statuses = append(statuses, skillInstallStatus{skillTarget: target, Status: status})
 	}
+	legacy, err := inspectLegacySkill(env.Home)
+	if err != nil {
+		return err
+	}
+	if legacy.Status == "managed-legacy" {
+		if err := os.Remove(legacy.Path); err != nil {
+			return fmt.Errorf("remove legacy Codex skill %s: %w", legacy.Path, err)
+		}
+		removeEmptySkillDirs(filepath.Dir(legacy.Path), filepath.Join(env.Home, ".codex", "skills"))
+		legacy.Status = "clear"
+	} else if legacy.Status == "missing" {
+		legacy.Status = "clear"
+	}
+	statuses = append(statuses, legacy)
 	return writeJSON(env.Stdout, map[string]any{"skill": "agent-board-workflow", "status": statuses})
+}
+
+func uniqueSkillTargets(targets []skillTarget) []skillTarget {
+	seen := make(map[string]bool, len(targets))
+	unique := make([]skillTarget, 0, len(targets))
+	for _, target := range targets {
+		if !seen[target.Path] {
+			seen[target.Path] = true
+			unique = append(unique, target)
+		}
+	}
+	return unique
+}
+
+func installSkill(target skillTarget) (string, error) {
+	contents, err := os.ReadFile(target.Path)
+	switch {
+	case err == nil && string(contents) == workflow.Skill:
+		return "current", nil
+	case err == nil:
+		return "different", nil
+	case !errors.Is(err, os.ErrNotExist):
+		return "", fmt.Errorf("check %s skill at %s: %w", target.Harness, target.Path, err)
+	}
+	if err := os.MkdirAll(filepath.Dir(target.Path), 0o755); err != nil {
+		return "", fmt.Errorf("create %s skill directory: %w", target.Harness, err)
+	}
+	if err := os.WriteFile(target.Path, []byte(workflow.Skill), 0o644); err != nil {
+		return "", fmt.Errorf("install %s skill at %s: %w", target.Harness, target.Path, err)
+	}
+	return "current", nil
+}
+
+func removeEmptySkillDirs(dir, stop string) {
+	for dir != stop && strings.HasPrefix(dir, stop+string(os.PathSeparator)) {
+		if err := os.Remove(dir); err != nil {
+			return
+		}
+		dir = filepath.Dir(dir)
+	}
 }
 
 func runSkillCheck(args []string, env Env) error {
@@ -274,7 +331,51 @@ func checkSkillStatus(home string) ([]skillInstallStatus, error) {
 		}
 		statuses = append(statuses, skillInstallStatus{skillTarget: target, Status: status})
 	}
+	legacy, err := inspectLegacySkill(home)
+	if err != nil {
+		return nil, err
+	}
+	if legacy.Status != "missing" {
+		statuses = append(statuses, legacy)
+	}
 	return statuses, nil
+}
+
+func inspectLegacySkill(home string) (skillInstallStatus, error) {
+	target := legacySkillTarget(home)
+	info, err := os.Lstat(target.Path)
+	if errors.Is(err, os.ErrNotExist) {
+		return skillInstallStatus{skillTarget: target, Status: "missing"}, nil
+	}
+	if err != nil {
+		return skillInstallStatus{}, fmt.Errorf("check legacy Codex skill at %s: %w", target.Path, err)
+	}
+	if !info.Mode().IsRegular() || legacySkillPathHasSymlink(home) {
+		return skillInstallStatus{skillTarget: target, Status: "unmanaged-legacy"}, nil
+	}
+	contents, err := os.ReadFile(target.Path)
+	switch {
+	case err == nil && string(contents) == workflow.Skill:
+		return skillInstallStatus{skillTarget: target, Status: "managed-legacy"}, nil
+	case err == nil:
+		return skillInstallStatus{skillTarget: target, Status: "unmanaged-legacy"}, nil
+	case errors.Is(err, os.ErrNotExist):
+		return skillInstallStatus{skillTarget: target, Status: "missing"}, nil
+	default:
+		return skillInstallStatus{}, fmt.Errorf("check legacy Codex skill at %s: %w", target.Path, err)
+	}
+}
+
+func legacySkillPathHasSymlink(home string) bool {
+	path := home
+	for _, part := range []string{".codex", "skills", "agent-board-workflow"} {
+		path = filepath.Join(path, part)
+		info, err := os.Lstat(path)
+		if err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+			return true
+		}
+	}
+	return false
 }
 
 func runSkillShow(args []string, env Env) error {
@@ -480,20 +581,25 @@ func runDoctor(ctx context.Context, args []string, env Env) error {
 	} else {
 		current := 0
 		different := 0
+		legacy := ""
 		for _, status := range skillStatuses {
 			if status.Status == "current" {
 				current++
 			} else if status.Status == "different" {
 				different++
+			} else if status.Status == "managed-legacy" || status.Status == "unmanaged-legacy" {
+				legacy = status.Status + ": " + status.Path
 			}
 		}
 		status, detail, next := "OK", fmt.Sprintf("Agent Board Workflow Skill 已安装且匹配 (%d/3 Harness)", current), ""
 		var harnessStates []string
 		for _, item := range skillStatuses {
-			harnessStates = append(harnessStates, item.Harness+"="+item.Status)
+			if item.Harness == "claude-code" || item.Harness == "codex" || item.Harness == "opencode" {
+				harnessStates = append(harnessStates, item.Harness+"="+item.Status)
+			}
 		}
 		detail += "; " + strings.Join(harnessStates, ", ")
-		if current < len(skillStatuses) {
+		if current < 3 {
 			status = "MISSING"
 			healthy = false
 			if different > 0 {
@@ -503,7 +609,17 @@ func runDoctor(ctx context.Context, args []string, env Env) error {
 				detail = fmt.Sprintf("仅 %d/3 Harness 安装了当前 Skill", current)
 			}
 			detail += "; " + strings.Join(harnessStates, ", ")
-			next = "运行 `aboard skill install` 安装或更新三个受支持 Harness 的 Skill。"
+			next = "运行 `aboard skill install` 安装三个受支持 Harness 的 Skill；不同内容会保留并报告。"
+		}
+		if legacy != "" {
+			status = "PROBLEM"
+			healthy = false
+			detail += "; 检测到旧路径 " + legacy
+			if strings.HasPrefix(legacy, "managed-legacy:") {
+				next = "运行 `aboard skill install` 备份前确认后移除与当前 canonical Skill 完全一致的旧副本。"
+			} else {
+				next = "检查该路径是否为用户自定义 Skill；确认后手动移走或合并，aboard 不会覆盖或删除它。"
+			}
 		}
 		lines = append(lines, doctorLine{"Skill", status, detail, next})
 	}

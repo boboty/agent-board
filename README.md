@@ -103,13 +103,25 @@ aboard skill check
 aboard skill show
 ```
 
-Install writes the same embedded content to Claude Code
-(`~/.claude/skills/agent-board-workflow/SKILL.md`), Codex
-(`~/.codex/skills/agent-board-workflow/SKILL.md`), and OpenCode
-(`~/.agents/skills/agent-board-workflow/SKILL.md`). Re-running install safely
-replaces those files with the binary's embedded version. `skill check` returns
-JSON status (`missing`, `current`, or `different`) and paths for all three;
-`skill show` prints the embedded Markdown as plain text.
+Install writes the same embedded content to Claude Code and OpenCode at
+`~/.claude/skills/agent-board-workflow/SKILL.md`, and to Codex at
+`~/.agents/skills/agent-board-workflow/SKILL.md`. Claude Code's personal path
+is `~/.claude/skills`; Codex's documented user path is `~/.agents/skills`.
+OpenCode scans both directories, and its current CLI resolves a same-name
+skill from these compatibility sources once (the Claude-compatible location
+wins). The old `~/.codex/skills` copy is also scanned by Codex when it is
+under `CODEX_HOME`, so keeping it alongside `~/.agents/skills` caused Codex to
+list the Skill twice. See the [Claude Code skills locations](https://code.claude.com/docs/en/skills),
+[Codex local skill locations](https://learn.chatgpt.com/docs/build-skills), and
+[OpenCode skill discovery](https://opencode.ai/docs/skills).
+
+`skill check` returns JSON status and paths for each Harness, plus a legacy
+Codex path when present. The old `~/.codex/skills/agent-board-workflow/SKILL.md`
+path is no longer installed. `skill install` removes that file only when its
+contents exactly match the embedded canonical Skill; a different file is kept
+and reported with a manual next step. Install does not overwrite different
+content at a supported path. Re-running install on matching files is
+idempotent. `skill show` prints the embedded Markdown as plain text.
 
 ### Web Board
 

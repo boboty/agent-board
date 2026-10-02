@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"go/parser"
 	"go/token"
@@ -146,8 +147,8 @@ func TestSkillCommands(t *testing.T) {
 		path    string
 	}{
 		{"claude-code", filepath.Join(home, ".claude", "skills", "agent-board-workflow", "SKILL.md")},
-		{"codex", filepath.Join(home, ".codex", "skills", "agent-board-workflow", "SKILL.md")},
-		{"opencode", filepath.Join(home, ".agents", "skills", "agent-board-workflow", "SKILL.md")},
+		{"codex", filepath.Join(home, ".agents", "skills", "agent-board-workflow", "SKILL.md")},
+		{"opencode", filepath.Join(home, ".claude", "skills", "agent-board-workflow", "SKILL.md")},
 	}
 
 	check := func(want string) {
@@ -175,8 +176,21 @@ func TestSkillCommands(t *testing.T) {
 	if show != workflow.Skill {
 		t.Fatal("skill show differs from embedded content")
 	}
-	h.ok("skill", "install")
+	legacy := filepath.Join(home, ".codex", "skills", "agent-board-workflow", "SKILL.md")
+	if err := os.MkdirAll(filepath.Dir(legacy), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(legacy, []byte(show), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	install := h.ok("skill", "install")
 	check("current")
+	if _, err := os.Stat(legacy); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("managed legacy path remains: %v", err)
+	}
+	if repeated := h.ok("skill", "install"); repeated != install {
+		t.Fatalf("repeat install differs:\nfirst %s\nnext %s", install, repeated)
+	}
 	for _, target := range targets {
 		contents, err := os.ReadFile(target.path)
 		if err != nil || string(contents) != show {
@@ -195,8 +209,52 @@ func TestSkillCommands(t *testing.T) {
 		t.Fatalf("different content status = %+v", result.Status)
 	}
 	h.ok("skill", "install")
+	result = decodeJSON[struct {
+		Status []struct {
+			Status string `json:"status"`
+		} `json:"status"`
+	}](t, h.ok("skill", "check"))
+	if result.Status[1].Status != "different" {
+		t.Fatalf("install overwrote unmanaged content: %+v", result.Status)
+	}
+	if err := os.WriteFile(targets[1].path, []byte(show), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	check("current")
 	h.fails(ExitUsage, CodeUsage, "skill", "show", "extra")
+}
+
+func TestSkillInstallAndCheckPreserveUnmanagedSkillFiles(t *testing.T) {
+	home := t.TempDir()
+	h := &harness{t: t, env: Env{Home: home}}
+	shared := filepath.Join(home, ".agents", "skills", "agent-board-workflow", "SKILL.md")
+	legacy := filepath.Join(home, ".codex", "skills", "agent-board-workflow", "SKILL.md")
+	for _, path := range []string{shared, legacy} {
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte("user-owned"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	install := h.ok("skill", "install")
+	for _, path := range []string{shared, legacy} {
+		contents, err := os.ReadFile(path)
+		if err != nil || string(contents) != "user-owned" {
+			t.Fatalf("unmanaged content at %s changed: %q, %v", path, contents, err)
+		}
+		if !strings.Contains(install, path) || !strings.Contains(install, "different") || !strings.Contains(install, "unmanaged-legacy") {
+			t.Fatalf("install did not report unmanaged path %s: %s", path, install)
+		}
+	}
+	check := h.ok("skill", "check")
+	if !strings.Contains(check, legacy) || !strings.Contains(check, "unmanaged-legacy") {
+		t.Fatalf("check did not report unmanaged legacy path: %s", check)
+	}
+	code, doctor, stderr := h.run("", "doctor")
+	if code != ExitError || stderr != "" || !strings.Contains(doctor, legacy) || !strings.Contains(doctor, "手动移走或合并") {
+		t.Fatalf("doctor did not report unmanaged legacy path and next step: %d %q %q", code, doctor, stderr)
+	}
 }
 
 func TestDoctorReportsHealthyAndMissingComponentsWithoutWriting(t *testing.T) {
@@ -222,13 +280,13 @@ func TestDoctorReportsHealthyAndMissingComponentsWithoutWriting(t *testing.T) {
 	if after := snapshotTree(t, h.env.Home, h.repo); !reflect.DeepEqual(before, after) {
 		t.Fatalf("doctor changed project or HOME files: before %v after %v", before, after)
 	}
-	codexSkill := filepath.Join(h.env.Home, ".codex", "skills", "agent-board-workflow", "SKILL.md")
+	codexSkill := filepath.Join(h.env.Home, ".agents", "skills", "agent-board-workflow", "SKILL.md")
 	claudeSkill := filepath.Join(h.env.Home, ".claude", "skills", "agent-board-workflow", "SKILL.md")
 	if err := os.Remove(claudeSkill); err != nil {
 		t.Fatal(err)
 	}
 	code, out, stderr := h.run("", "doctor")
-	if code != ExitError || stderr != "" || !strings.Contains(out, "Skill    MISSING") || !strings.Contains(out, "仅 2/3 Harness") || !strings.Contains(out, "claude-code=missing") || !strings.Contains(out, "Next step:") {
+	if code != ExitError || stderr != "" || !strings.Contains(out, "Skill    MISSING") || !strings.Contains(out, "仅 1/3 Harness") || !strings.Contains(out, "claude-code=missing") || !strings.Contains(out, "opencode=missing") || !strings.Contains(out, "Next step:") {
 		t.Fatalf("missing Skill doctor exit %d stdout %q stderr %q", code, out, stderr)
 	}
 	h.ok("skill", "install")
