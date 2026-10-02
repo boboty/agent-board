@@ -425,7 +425,7 @@ func TestCleanMissingInvalidIdentityAndDataFailureKeepIdentity(t *testing.T) {
 		ProjectID string `json:"project_id"`
 	}](t, mustRead(t, identityPath)).ProjectID
 	dataDir := filepath.Join(p.home, ".agent-board", projectID)
-	if err := os.WriteFile(identityPath, []byte(`{"version":1,"project_id":"bad"}`), 0o600); err != nil {
+	if err := os.WriteFile(identityPath, []byte(`{"version":2,"project_id":"bad","name":"fixture"}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	r := p.run(p.repo, "clean", "--yes")
@@ -453,7 +453,7 @@ func TestCleanMissingInvalidIdentityAndDataFailureKeepIdentity(t *testing.T) {
 	}
 
 	// Restore a valid identity, then make the data-root path a regular file.
-	if err := os.WriteFile(identityPath, []byte(`{"version":1,"project_id":"01M3VN4DT676SGJ90T58JRB13R"}`), 0o600); err != nil {
+	if err := os.WriteFile(identityPath, []byte(`{"version":2,"project_id":"01M3VN4DT676SGJ90T58JRB13R","name":"fixture"}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	dataRoot := filepath.Join(p.home, ".agent-board")
