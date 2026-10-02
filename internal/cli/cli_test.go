@@ -3,13 +3,16 @@ package cli
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
+	"fmt"
 	"go/parser"
 	"go/token"
 	"io"
 	"net/http"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strconv"
 	"strings"
 	"testing"
@@ -86,6 +89,40 @@ func decodeJSON[T any](t *testing.T, text string) T {
 		t.Fatalf("decode %q: %v", text, err)
 	}
 	return value
+}
+
+func snapshotTree(t *testing.T, roots ...string) map[string]string {
+	t.Helper()
+	snapshot := make(map[string]string)
+	for _, root := range roots {
+		err := filepath.WalkDir(root, func(path string, entry os.DirEntry, err error) error {
+			if err != nil {
+				return err
+			}
+			relative, err := filepath.Rel(root, path)
+			if err != nil {
+				return err
+			}
+			key := root
+			if relative != "." {
+				key = filepath.Join(root, relative)
+			}
+			if entry.IsDir() {
+				snapshot[key] = "directory"
+				return nil
+			}
+			contents, err := os.ReadFile(path)
+			if err != nil {
+				return err
+			}
+			snapshot[key] = fmt.Sprintf("%x", sha256.Sum256(contents))
+			return nil
+		})
+		if err != nil {
+			t.Fatalf("snapshot %s: %v", root, err)
+		}
+	}
+	return snapshot
 }
 
 func TestInitAndCheck(t *testing.T) {
@@ -166,34 +203,45 @@ func TestDoctorReportsHealthyAndMissingComponentsWithoutWriting(t *testing.T) {
 	h := newHarness(t)
 	h.ok("skill", "install")
 	output := h.ok("doctor")
-	for _, want := range []string{"Binary   OK", "Skill    OK", "Project  OK", "Board    PRESENT", "SQLite 文件头有效；未验证 schema 或 project binding", "MCP      OK", "operations and schemas loaded"} {
+	for _, want := range []string{"Binary   OK", "Skill    OK", "Project  OK", "Board    PRESENT", "数据库文件存在，SQLite 格式可识别", "MCP      OK", "个操作及输入定义已加载（未启动 MCP 服务）"} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("doctor output %q does not contain %q", output, want)
 		}
 	}
+	for _, unwanted := range []string{"schema", "project binding", "备份", "迁移", "SQLite 文件头"} {
+		if strings.Contains(output, unwanted) {
+			t.Fatalf("normal doctor output exposes internal warning %q: %q", unwanted, output)
+		}
+	}
 
 	database := filepath.Join(h.env.Home, ".agent-board", decodeJSON[workspace.Status](t, h.ok("check")).ProjectID, "board.db")
-	before, err := os.Stat(database)
-	if err != nil {
-		t.Fatal(err)
-	}
+	before := snapshotTree(t, h.env.Home, h.repo)
 	if code, out, stderr := h.run("", "doctor"); code != ExitOK || stderr != "" || out != output {
 		t.Fatalf("repeat doctor exit %d stderr %q output differs", code, stderr)
 	}
-	after, err := os.Stat(database)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !before.ModTime().Equal(after.ModTime()) || before.Size() != after.Size() {
-		t.Fatalf("doctor changed database metadata: before %v/%d after %v/%d", before.ModTime(), before.Size(), after.ModTime(), after.Size())
+	if after := snapshotTree(t, h.env.Home, h.repo); !reflect.DeepEqual(before, after) {
+		t.Fatalf("doctor changed project or HOME files: before %v after %v", before, after)
 	}
 	codexSkill := filepath.Join(h.env.Home, ".codex", "skills", "agent-board-workflow", "SKILL.md")
-	if err := os.WriteFile(codexSkill, []byte("stale"), 0o644); err != nil {
+	claudeSkill := filepath.Join(h.env.Home, ".claude", "skills", "agent-board-workflow", "SKILL.md")
+	if err := os.Remove(claudeSkill); err != nil {
 		t.Fatal(err)
 	}
 	code, out, stderr := h.run("", "doctor")
+	if code != ExitError || stderr != "" || !strings.Contains(out, "Skill    MISSING") || !strings.Contains(out, "仅 2/3 Harness") || !strings.Contains(out, "claude-code=missing") || !strings.Contains(out, "Next step:") {
+		t.Fatalf("missing Skill doctor exit %d stdout %q stderr %q", code, out, stderr)
+	}
+	h.ok("skill", "install")
+	if err := os.WriteFile(codexSkill, []byte("stale"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	before = snapshotTree(t, h.env.Home, h.repo)
+	code, out, stderr = h.run("", "doctor")
 	if code != ExitError || stderr != "" || !strings.Contains(out, "Skill    PROBLEM") || !strings.Contains(out, "codex=different") || !strings.Contains(out, "Next step:") {
 		t.Fatalf("different Skill doctor exit %d stdout %q stderr %q", code, out, stderr)
+	}
+	if after := snapshotTree(t, h.env.Home, h.repo); !reflect.DeepEqual(before, after) {
+		t.Fatalf("doctor changed files while reporting Skill mismatch: before %v after %v", before, after)
 	}
 	if err := os.WriteFile(codexSkill, []byte(workflow.Skill), 0o644); err != nil {
 		t.Fatal(err)
@@ -202,24 +250,25 @@ func TestDoctorReportsHealthyAndMissingComponentsWithoutWriting(t *testing.T) {
 	if err := os.WriteFile(database, garbage, 0o600); err != nil {
 		t.Fatal(err)
 	}
+	before = snapshotTree(t, h.env.Home, h.repo)
 	code, out, stderr = h.run("", "doctor")
 	if code != ExitError || stderr != "" || !strings.Contains(out, "Board    PROBLEM") || !strings.Contains(out, "不是有效的 SQLite 文件头") || !strings.Contains(out, "Next step:") {
 		t.Fatalf("garbage database doctor exit %d stdout %q stderr %q", code, out, stderr)
 	}
-	afterGarbage, err := os.ReadFile(database)
-	if err != nil || !bytes.Equal(afterGarbage, garbage) {
-		t.Fatalf("doctor changed garbage database: %v", err)
+	if after := snapshotTree(t, h.env.Home, h.repo); !reflect.DeepEqual(before, after) {
+		t.Fatalf("doctor changed files while reporting corrupt DB: before %v after %v", before, after)
 	}
 
 	if err := os.Remove(database); err != nil {
 		t.Fatal(err)
 	}
+	before = snapshotTree(t, h.env.Home, h.repo)
 	code, out, stderr = h.run("", "doctor")
 	if code != ExitError || stderr != "" || !strings.Contains(out, "Board    MISSING") || !strings.Contains(out, "Next step:") {
 		t.Fatalf("missing database doctor exit %d stdout %q stderr %q", code, out, stderr)
 	}
-	if _, err := os.Stat(database); !os.IsNotExist(err) {
-		t.Fatalf("doctor created missing database: %v", err)
+	if after := snapshotTree(t, h.env.Home, h.repo); !reflect.DeepEqual(before, after) {
+		t.Fatalf("doctor changed files while reporting missing DB: before %v after %v", before, after)
 	}
 }
 
@@ -241,6 +290,22 @@ func TestDoctorOutsideProjectAndWithMissingSkill(t *testing.T) {
 		}
 	}
 	h.fails(ExitUsage, CodeUsage, "doctor", "unexpected")
+}
+
+func TestDoctorReportsInvalidProjectConfigurationWithoutWriting(t *testing.T) {
+	h := newHarness(t)
+	identity := filepath.Join(h.repo, projectconfig.IdentityFileName)
+	if err := os.WriteFile(identity, []byte("{broken"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	before := snapshotTree(t, h.env.Home, h.repo)
+	code, output, stderr := h.run("", "doctor")
+	if code != ExitError || stderr != "" || !strings.Contains(output, "Project  PROBLEM") || !strings.Contains(output, "Board    PROBLEM") || !strings.Contains(output, "修复 Project 项") || !strings.Contains(output, "Next step:") {
+		t.Fatalf("invalid project doctor exit %d stdout %q stderr %q", code, output, stderr)
+	}
+	if after := snapshotTree(t, h.env.Home, h.repo); !reflect.DeepEqual(before, after) {
+		t.Fatalf("doctor changed files while reporting invalid project config: before %v after %v", before, after)
+	}
 }
 
 func TestMCPConfigCommands(t *testing.T) {

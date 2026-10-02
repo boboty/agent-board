@@ -83,15 +83,13 @@ default actor is `$AGENT_BOARD_ACTOR`, overridden by `--actor`.
 
 `aboard doctor` prints human-readable status for the binary/version,
 Workflow Skill, project identity, Board database file, and MCP operation
-catalog. Exit status 0 means no problem was detected by these checks, 1 means
-a component needs attention, and 2 means invalid usage. It is read-only: it
-does not install the Skill, initialize projects, open SQLite, or run
-migrations. For a regular DB file, doctor reads its 16-byte SQLite header.
-Invalid headers are reported as
-`Board PROBLEM`; a valid header is reported as `Board PRESENT`, not `OK`, since
-doctor does not verify the schema or project binding. Exit 0 does not guarantee
-that an un-opened Board database is fully usable. A normal Board command may
-open the database and run migrations when full validation is needed.
+catalog. Exit status 0 means no problem was detected by its read-only checks,
+1 means a component needs attention, and 2 means invalid usage. It does not
+install the Skill, initialize projects, connect to SQLite, or run migrations.
+For an existing Board file, it checks that the file is regular and has a
+recognizable SQLite format; `Board PRESENT` means those file checks passed, not
+that the database was opened or its contents validated. MCP status confirms
+that the operation definitions are loaded; it does not start an MCP service.
 
 ### Workflow Skill
 

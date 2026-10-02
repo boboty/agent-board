@@ -100,7 +100,7 @@ Common flags:
   --key KEY       idempotency key for a mutation
 
 REF is a task ID or number (12 or #12). Output is JSON.
-doctor prints human-readable component status; exit 0 means no detected problems, 1 means a component needs attention, and 2 means invalid usage. Board PRESENT means only the SQLite file header was checked; schema and project binding are not verified.
+doctor prints human-readable component status; exit 0 means no problems were found by its read-only checks, 1 means a component needs attention, and 2 means invalid usage. It checks that the Board file exists and has a recognizable SQLite format; it does not connect to the database. MCP status reports that operation definitions are loaded; it does not start an MCP service.
 `
 
 type usageError struct{ message string }
@@ -544,7 +544,7 @@ func runDoctor(ctx context.Context, args []string, env Env) error {
 				lines = append(lines, doctorLine{"Board", "PROBLEM", located.DatabasePath + " 不是有效的 SQLite 文件头", "检查文件是否被覆盖或损坏，并从可信备份恢复正确的项目数据库。"})
 				healthy = false
 			default:
-				lines = append(lines, doctorLine{"Board", "PRESENT", located.DatabasePath + " (SQLite 文件头有效；未验证 schema 或 project binding)", "需要完整验证时，先备份数据库，再运行普通 Board 命令；它可能执行迁移。"})
+				lines = append(lines, doctorLine{"Board", "PRESENT", located.DatabasePath + " (数据库文件存在，SQLite 格式可识别)", ""})
 			}
 		}
 	} else {
@@ -568,7 +568,7 @@ func runDoctor(ctx context.Context, args []string, env Env) error {
 	// the catalog and does not open a project or database.
 	if loaded {
 		_ = mcpserver.New(nil, mcpserver.Info{Version: env.Version})
-		lines = append(lines, doctorLine{"MCP", "OK", fmt.Sprintf("%d operations and schemas loaded", len(operations)), ""})
+		lines = append(lines, doctorLine{"MCP", "OK", fmt.Sprintf("%d 个操作及输入定义已加载（未启动 MCP 服务）", len(operations)), ""})
 	} else {
 		lines = append(lines, doctorLine{"MCP", "PROBLEM", "operation registry or input schema is unavailable", "重新构建或重新安装 aboard binary。"})
 		healthy = false
