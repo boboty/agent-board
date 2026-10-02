@@ -63,6 +63,7 @@ const usage = `usage: aboard <command> [flags]
 Project:
   init                         create .agent-board.json here and the shared Board database
   clean [--yes]                remove this project's identity and shared Board data
+  uninstall [--yes] [--force]  remove aboard, its Skills, and all local Board data
   check                        show project discovery and database location
   doctor                       diagnose installation and current project setup
   board                        show the READY queue and every task
@@ -132,6 +133,10 @@ func Run(ctx context.Context, args []string, env Env) int {
 	if errors.As(err, &healthErr) {
 		return ExitError
 	}
+	var uninstallErr uninstallIncomplete
+	if errors.As(err, &uninstallErr) {
+		return ExitError
+	}
 	writeError(env.Stderr, ops.DescribeError(err))
 	return ExitError
 }
@@ -166,6 +171,8 @@ func run(ctx context.Context, args []string, env Env) error {
 		return runInit(ctx, rest, env)
 	case "clean":
 		return runClean(rest, env)
+	case "uninstall":
+		return runUninstall(rest, env)
 	case "check":
 		return runCheck(ctx, rest, env)
 	case "doctor":
@@ -248,6 +255,218 @@ func runClean(args []string, env Env) error {
 	}
 	fmt.Fprintln(env.Stdout, "Project Agent Board data and identity removed.")
 	return nil
+}
+
+// uninstallIncomplete marks an uninstall that reported its per-path failures
+// itself, so Run can return a failure status without obscuring that report.
+type uninstallIncomplete struct{}
+
+func (uninstallIncomplete) Error() string { return "Agent Board uninstall was incomplete" }
+
+func runUninstall(args []string, env Env) error {
+	yes, force := false, false
+	for _, arg := range args {
+		switch arg {
+		case "--yes":
+			if yes {
+				return usagef("uninstall accepts --yes at most once")
+			}
+			yes = true
+		case "--force":
+			if force {
+				return usagef("uninstall accepts --force at most once")
+			}
+			force = true
+		default:
+			return usagef("unknown uninstall argument %q (choose --yes or --force)", arg)
+		}
+	}
+	resolve := env.ExecutablePath
+	if resolve == nil {
+		resolve = runningExecutable
+	}
+	executable, err := resolve()
+	if err != nil {
+		return fmt.Errorf("resolve aboard executable: %w", err)
+	}
+	if !filepath.IsAbs(executable) {
+		return fmt.Errorf("resolve aboard executable: path is not absolute: %q", executable)
+	}
+	if env.Home == "" || !filepath.IsAbs(env.Home) {
+		return fmt.Errorf("resolve Agent Board data root: HOME is empty or not absolute")
+	}
+	dataRoot := filepath.Join(env.Home, ".agent-board")
+	definitions := skillDefinitions()
+	targets := make([]skillTarget, 0, 7)
+	for _, skill := range definitions {
+		targets = append(targets, uniqueSkillTargets(skillTargets(env.Home, skill.Name))...)
+	}
+	targets = append(targets, legacySkillTarget(env.Home))
+	fmt.Fprintf(env.Stdout, "Uninstall targets:\n  Binary: %s\n", executable)
+	for _, target := range targets {
+		fmt.Fprintf(env.Stdout, "  %s Skill: %s\n", target.Harness, target.Path)
+	}
+	fmt.Fprintf(env.Stdout, "  Local data: %s\n", dataRoot)
+	if !yes {
+		fmt.Fprint(env.Stdout, "Uninstall Agent Board from this machine? [y/N] ")
+		line, readErr := bufio.NewReader(env.Stdin).ReadString('\n')
+		if readErr != nil && !errors.Is(readErr, io.EOF) {
+			fmt.Fprintln(env.Stdout, "Uninstall cancelled; nothing was removed.")
+			return nil
+		}
+		answer := strings.TrimSpace(line)
+		if !strings.EqualFold(answer, "y") && !strings.EqualFold(answer, "yes") {
+			fmt.Fprintln(env.Stdout, "Uninstall cancelled; nothing was removed.")
+			return nil
+		}
+	}
+	failed := false
+	var preservedItems, failedItems []string
+	for _, target := range targets {
+		status, inspectErr := inspectUninstallSkill(target, definitions)
+		if inspectErr != nil {
+			fmt.Fprintf(env.Stdout, "FAILED Skill %s: %v\n", target.Path, inspectErr)
+			failedItems = append(failedItems, target.Path)
+			failed = true
+			continue
+		}
+		switch status {
+		case "missing":
+			fmt.Fprintf(env.Stdout, "MISSING Skill: %s\n", target.Path)
+		case "unmanaged":
+			fmt.Fprintf(env.Stdout, "PRESERVED unmanaged Skill (left in place; remove manually if no longer needed): %s\n", target.Path)
+			preservedItems = append(preservedItems, target.Path)
+			failed = true
+		case "modified":
+			if !force {
+				fmt.Fprintf(env.Stdout, "PRESERVED modified Agent Board Skill (left in place; remove manually, or reinstall aboard before using --force): %s\n", target.Path)
+				preservedItems = append(preservedItems, target.Path)
+				failed = true
+				continue
+			}
+		}
+		if status == "current" || status == "modified" && force {
+			if removeErr := os.Remove(target.Path); removeErr != nil {
+				fmt.Fprintf(env.Stdout, "FAILED Skill %s: %v\n", target.Path, removeErr)
+				failedItems = append(failedItems, target.Path)
+				failed = true
+				continue
+			}
+			fmt.Fprintf(env.Stdout, "REMOVED Skill: %s\n", target.Path)
+			var stop string
+			if target.Harness == "codex-legacy" {
+				stop = filepath.Join(env.Home, ".codex", "skills")
+			} else if target.Harness == "codex" {
+				stop = filepath.Join(env.Home, ".agents", "skills")
+			} else {
+				stop = filepath.Join(env.Home, ".claude", "skills")
+			}
+			removeEmptySkillDirs(filepath.Dir(target.Path), stop)
+		}
+	}
+	dataRemoved, err := removeDataRoot(dataRoot)
+	if err != nil {
+		fmt.Fprintf(env.Stdout, "FAILED local data %s: %v\n", dataRoot, err)
+		fmt.Fprintf(env.Stdout, "Local data remains or may be partially removed; inspect and remove it manually: %s\n", dataRoot)
+		failedItems = append(failedItems, dataRoot)
+		failed = true
+	} else if dataRemoved {
+		fmt.Fprintf(env.Stdout, "REMOVED local data: %s\n", dataRoot)
+	} else {
+		fmt.Fprintf(env.Stdout, "MISSING local data: %s\n", dataRoot)
+	}
+	binaryStatus := "REMOVED"
+	if err := os.Remove(executable); err != nil {
+		binaryStatus = "FAILED"
+		fmt.Fprintf(env.Stdout, "FAILED binary %s: %v\n", executable, err)
+		failedItems = append(failedItems, executable)
+		failed = true
+	} else {
+		fmt.Fprintf(env.Stdout, "REMOVED binary: %s\n", executable)
+	}
+	if failed {
+		fmt.Fprintf(env.Stdout, "Agent Board uninstall incomplete.\nBinary: %s (%s)\n", binaryStatus, executable)
+		if len(preservedItems) > 0 {
+			fmt.Fprintln(env.Stdout, "Preserved items requiring manual handling:")
+			for _, path := range preservedItems {
+				fmt.Fprintf(env.Stdout, "  %s\n", path)
+			}
+		}
+		if len(failedItems) > 0 {
+			fmt.Fprintln(env.Stdout, "Failed items requiring inspection and manual cleanup:")
+			for _, path := range failedItems {
+				fmt.Fprintf(env.Stdout, "  %s\n", path)
+			}
+		}
+		return uninstallIncomplete{}
+	}
+	fmt.Fprintln(env.Stdout, "Agent Board uninstall complete.")
+	return nil
+}
+
+func removeDataRoot(root string) (bool, error) {
+	info, err := os.Lstat(root)
+	if errors.Is(err, os.ErrNotExist) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
+		return false, fmt.Errorf("expected a real directory; preserving non-directory or symlink")
+	}
+	if err := os.RemoveAll(root); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+func inspectUninstallSkill(target skillTarget, definitions []skillDefinition) (string, error) {
+	info, err := os.Lstat(target.Path)
+	if errors.Is(err, os.ErrNotExist) {
+		return "missing", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	if !info.Mode().IsRegular() || uninstallSkillPathHasSymlink(target) {
+		return "unmanaged", nil
+	}
+	contents, err := os.ReadFile(target.Path)
+	if err != nil {
+		return "", err
+	}
+	if target.Harness == "codex-legacy" {
+		if string(contents) == workflow.Skill {
+			return "current", nil
+		}
+		return "unmanaged", nil
+	}
+	for _, skill := range definitions {
+		if filepath.Base(filepath.Dir(target.Path)) == "agent-board-"+skill.Name {
+			if string(contents) == skill.Content {
+				return "current", nil
+			}
+			return "modified", nil
+		}
+	}
+	return "unmanaged", nil
+}
+
+func uninstallSkillPathHasSymlink(target skillTarget) bool {
+	path := target.Path
+	const stopDepth = 4 // file, skill directory, skills directory, harness directory, HOME
+	for depth := 0; depth <= stopDepth; depth++ {
+		info, err := os.Lstat(path)
+		if err != nil || info.Mode()&os.ModeSymlink != 0 {
+			return true
+		}
+		if depth == stopDepth {
+			return false
+		}
+		path = filepath.Dir(path)
+	}
+	return false
 }
 
 type skillTarget struct {

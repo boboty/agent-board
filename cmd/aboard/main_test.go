@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -18,6 +19,8 @@ import (
 	"github.com/boboty/agent-board/internal/domain"
 	"github.com/boboty/agent-board/internal/ops"
 	"github.com/boboty/agent-board/internal/workspace"
+	"github.com/boboty/agent-board/management"
+	"github.com/boboty/agent-board/workflow"
 )
 
 var binary string
@@ -142,6 +145,231 @@ func TestCleanDeclinesByDefaultAndOnNo(t *testing.T) {
 				t.Fatalf("refusal changed %s: %v", path, err)
 			}
 		}
+	}
+}
+
+func TestUninstallIsConfinedAndReportsActualResults(t *testing.T) {
+	actualHome, err := os.UserHomeDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	actualExecutable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	actualExecutable, err = filepath.EvalSymlinks(actualExecutable)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Each case runs an isolated copy of the real CLI in an uninitialized cwd.
+	// No invocation points at the developer's installed or test-build binary.
+	setup := func() (string, string, string, string) {
+		t.Helper()
+		base, err := filepath.EvalSymlinks(t.TempDir())
+		if err != nil {
+			t.Fatal(err)
+		}
+		home := filepath.Join(base, "home")
+		cwd := filepath.Join(base, "uninitialized")
+		fixture := filepath.Join(base, "bin", "aboard")
+		if filepath.Clean(home) == filepath.Clean(actualHome) || filepath.Clean(fixture) == filepath.Clean(actualExecutable) || filepath.Clean(fixture) == filepath.Clean(binary) || filepath.Clean(fixture) == filepath.Join(filepath.Clean(actualHome), "go", "bin", "aboard") || filepath.Clean(cwd) == filepath.Clean(actualHome) {
+			t.Fatal("uninstall fixture could target a real user path")
+		}
+		for _, dir := range []string{home, cwd, filepath.Dir(fixture)} {
+			if err := os.MkdirAll(dir, 0o755); err != nil {
+				t.Fatal(err)
+			}
+		}
+		contents, err := os.ReadFile(binary)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(fixture, contents, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		return base, home, cwd, fixture
+	}
+	install := func(home string, skillName, content string) string {
+		t.Helper()
+		path := filepath.Join(home, ".agents", "skills", "agent-board-"+skillName, "SKILL.md")
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		return path
+	}
+	run := func(home, cwd, fixture, input string, args ...string) (int, string, string) {
+		t.Helper()
+		cmd := exec.Command(fixture, append([]string{"uninstall"}, args...)...)
+		cmd.Dir = cwd
+		cmd.Env = append(os.Environ(), "HOME="+home)
+		cmd.Stdin = strings.NewReader(input)
+		var stdout, stderr bytes.Buffer
+		cmd.Stdout, cmd.Stderr = &stdout, &stderr
+		err := cmd.Run()
+		code := 0
+		if err != nil {
+			if exit, ok := err.(*exec.ExitError); ok {
+				code = exit.ExitCode()
+			} else {
+				t.Fatalf("run isolated uninstall: %v", err)
+			}
+		}
+		return code, stdout.String(), stderr.String()
+	}
+	assertAbsent := func(path string) {
+		t.Helper()
+		if _, err := os.Lstat(path); !os.IsNotExist(err) {
+			t.Fatalf("expected absent %s, lstat err=%v", path, err)
+		}
+	}
+
+	// Normal uninstall: matching Skills and all data are removed, the isolated
+	// executable unlinks itself on the actual host platform, and unrelated files remain.
+	_, home, cwd, fixture := setup()
+	managed := install(home, "workflow", workflow.Skill)
+	managementPath := install(home, "management", management.Skill)
+	data := filepath.Join(home, ".agent-board")
+	if err := os.MkdirAll(filepath.Join(data, "nested"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(data, "nested", "db"), []byte("local"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	outside := filepath.Join(home, "keep.txt")
+	if err := os.WriteFile(outside, []byte("keep"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	code, output, stderr := run(home, cwd, fixture, "", "--yes")
+	t.Logf("uninstall --yes output (darwin=%t):\n%sstderr=%q exit=%d", runtime.GOOS == "darwin", output, stderr, code)
+	if code != 0 || stderr != "" || !strings.Contains(output, "Agent Board uninstall complete.") {
+		t.Fatalf("normal uninstall: exit=%d stdout=%q stderr=%q", code, output, stderr)
+	}
+	for _, path := range []string{managed, managementPath, data, fixture} {
+		assertAbsent(path)
+	}
+	if got, err := os.ReadFile(outside); err != nil || string(got) != "keep" {
+		t.Fatalf("outside file changed: %q, %v", got, err)
+	}
+	if _, err := os.Stat(cwd); err != nil {
+		t.Fatalf("uninitialized cwd was removed: %v", err)
+	}
+
+	// A modified managed Skill is retained by default and the output identifies
+	// it exactly; --force removes it only after a separate affirmative answer.
+	_, home, cwd, fixture = setup()
+	modified := install(home, "workflow", "locally modified Agent Board workflow\n")
+	data = filepath.Join(home, ".agent-board")
+	if err := os.Mkdir(data, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	code, output, stderr = run(home, cwd, fixture, "y\n")
+	t.Logf("modified Skill default output:\n%sstderr=%q exit=%d", output, stderr, code)
+	if code == 0 || !strings.Contains(output, "PRESERVED modified Agent Board Skill") || !strings.Contains(output, "left in place; remove manually") || !strings.Contains(output, "reinstall aboard before using --force") || strings.Contains(output, "use --force to remove after confirming uninstall") || !strings.Contains(output, "Preserved items requiring manual handling:\n  "+modified) || !strings.Contains(output, "Binary: REMOVED ("+fixture+")") || !strings.Contains(output, "Agent Board uninstall incomplete") {
+		t.Fatalf("modified default report: exit=%d stdout=%q stderr=%q", code, output, stderr)
+	}
+	if got, err := os.ReadFile(modified); err != nil || string(got) != "locally modified Agent Board workflow\n" {
+		t.Fatalf("modified Skill was changed: %q, %v", got, err)
+	}
+	assertAbsent(data)
+	assertAbsent(fixture)
+	_, home, cwd, fixture = setup()
+	modified = install(home, "workflow", "locally modified Agent Board workflow\n")
+	code, output, stderr = run(home, cwd, fixture, "yes\n", "--force")
+	t.Logf("uninstall --force with confirmation output:\n%sstderr=%q exit=%d", output, stderr, code)
+	if code != 0 || stderr != "" || !strings.Contains(output, "REMOVED Skill: "+modified) || !strings.Contains(output, "Agent Board uninstall complete.") {
+		t.Fatalf("forced uninstall: exit=%d stdout=%q stderr=%q", code, output, stderr)
+	}
+	assertAbsent(modified)
+	assertAbsent(fixture)
+
+	// A changed legacy Codex copy is unmanaged by the existing install/check
+	// behavior, so --force must preserve it and list it for manual handling.
+	_, home, cwd, fixture = setup()
+	legacy := filepath.Join(home, ".codex", "skills", "agent-board-workflow", "SKILL.md")
+	if err := os.MkdirAll(filepath.Dir(legacy), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(legacy, []byte("unmanaged legacy workflow\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	code, output, stderr = run(home, cwd, fixture, "yes\n", "--force")
+	t.Logf("codex-legacy different Skill with --force output:\n%sstderr=%q exit=%d", output, stderr, code)
+	if code == 0 || stderr != "" || !strings.Contains(output, "PRESERVED unmanaged Skill (left in place") || !strings.Contains(output, legacy) || strings.Contains(output, "PRESERVED modified Agent Board Skill") || !strings.Contains(output, "Preserved items requiring manual handling:\n  "+legacy) || !strings.Contains(output, "Binary: REMOVED ("+fixture+")") {
+		t.Fatalf("legacy --force report: exit=%d stdout=%q stderr=%q", code, output, stderr)
+	}
+	if got, err := os.ReadFile(legacy); err != nil || string(got) != "unmanaged legacy workflow\n" {
+		t.Fatalf("unmanaged legacy Skill changed: %q, %v", got, err)
+	}
+	assertAbsent(fixture)
+
+	// Symlinked known targets and a symlinked data root are preserved so a
+	// known HOME path cannot redirect deletion outside the Agent Board paths.
+	base, home, cwd, fixture := setup()
+	externalSkill := filepath.Join(base, "external-skill.md")
+	if err := os.WriteFile(externalSkill, []byte("outside skill data"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	linkedSkill := filepath.Join(home, ".agents", "skills", "agent-board-workflow", "SKILL.md")
+	if err := os.MkdirAll(filepath.Dir(linkedSkill), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(externalSkill, linkedSkill); err != nil {
+		t.Fatal(err)
+	}
+	externalData := filepath.Join(base, "external-data")
+	if err := os.Mkdir(externalData, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	dataMarker := filepath.Join(externalData, "keep.db")
+	if err := os.WriteFile(dataMarker, []byte("outside board data"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(externalData, filepath.Join(home, ".agent-board")); err != nil {
+		t.Fatal(err)
+	}
+	code, output, stderr = run(home, cwd, fixture, "y\n")
+	t.Logf("symlink boundary output:\n%sstderr=%q exit=%d", output, stderr, code)
+	if code == 0 || !strings.Contains(output, "PRESERVED unmanaged Skill (left in place") || !strings.Contains(output, linkedSkill) || !strings.Contains(output, "FAILED local data") || !strings.Contains(output, "Local data remains or may be partially removed; inspect and remove it manually") || !strings.Contains(output, "Failed items requiring inspection and manual cleanup:\n  "+filepath.Join(home, ".agent-board")) || !strings.Contains(output, "Agent Board uninstall incomplete") {
+		t.Fatalf("symlink boundary: exit=%d stdout=%q stderr=%q", code, output, stderr)
+	}
+	for _, path := range []string{linkedSkill, filepath.Join(home, ".agent-board")} {
+		if info, err := os.Lstat(path); err != nil || info.Mode()&os.ModeSymlink == 0 {
+			t.Fatalf("expected preserved symlink %s: info=%v err=%v", path, info, err)
+		}
+	}
+	if got, err := os.ReadFile(externalSkill); err != nil || string(got) != "outside skill data" {
+		t.Fatalf("external Skill target changed: %q, %v", got, err)
+	}
+	if got, err := os.ReadFile(dataMarker); err != nil || string(got) != "outside board data" {
+		t.Fatalf("external data target changed: %q, %v", got, err)
+	}
+	assertAbsent(fixture)
+
+	// --force is not confirmation. Default EOF and an explicit No both leave
+	// every listed target untouched and never claim completion.
+	for _, refusal := range []struct{ name, input string }{{"default", ""}, {"no", "n\n"}} {
+		_, home, cwd, fixture = setup()
+		managed = install(home, "workflow", workflow.Skill)
+		data = filepath.Join(home, ".agent-board")
+		if err := os.Mkdir(data, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		code, output, stderr = run(home, cwd, fixture, refusal.input, "--force")
+		t.Logf("uninstall --force %s refusal output:\n%sstderr=%q exit=%d", refusal.name, output, stderr, code)
+		if code != 0 || stderr != "" || !strings.Contains(output, "Uninstall cancelled; nothing was removed.") || strings.Contains(output, "uninstall complete") {
+			t.Fatalf("%s refusal: exit=%d stdout=%q stderr=%q", refusal.name, code, output, stderr)
+		}
+		for _, path := range []string{managed, data, fixture} {
+			if _, err := os.Stat(path); err != nil {
+				t.Fatalf("refusal removed %s: %v", path, err)
+			}
+		}
+	}
+	if filepath.Clean(home) == filepath.Clean(actualHome) {
+		t.Fatal("final fixture HOME equals real HOME")
 	}
 }
 
