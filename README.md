@@ -210,6 +210,8 @@ aboard uninstall --force
 
 你可以只用 Web，也可以让 Agent 通过 CLI 或 MCP 操作同一块 Board。
 
+CLI 写操作需要提供 actor 作为审计标签：单条命令可传 `--actor human/yan`，也可设置默认值 `export AGENT_BOARD_ACTOR=human/yan`。
+
 常用命令：
 
 ```bash

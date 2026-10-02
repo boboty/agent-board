@@ -210,6 +210,8 @@ Unmanaged Skills and content-mismatched legacy Skills are always preserved for m
 
 You can use the Web Board directly, or let agents operate the same Board through CLI or MCP.
 
+CLI write commands require an actor audit label. Pass `--actor human/yan` to a command, or set the default with `export AGENT_BOARD_ACTOR=human/yan`.
+
 Common commands:
 
 ```bash

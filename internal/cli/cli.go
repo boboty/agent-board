@@ -138,7 +138,16 @@ func Run(ctx context.Context, args []string, env Env) int {
 	if errors.As(err, &uninstallErr) {
 		return ExitError
 	}
-	writeError(env.Stderr, ops.DescribeError(err))
+	described := ops.DescribeError(err)
+	if described.Code == domain.CodeInvalidArgument {
+		for _, detail := range described.Details {
+			if detail.Field == "actor" {
+				described.Message += "; provide --actor LABEL or set AGENT_BOARD_ACTOR"
+				break
+			}
+		}
+	}
+	writeError(env.Stderr, described)
 	return ExitError
 }
 

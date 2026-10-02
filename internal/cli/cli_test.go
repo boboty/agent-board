@@ -821,6 +821,37 @@ func TestErrorsKeepTheirCodes(t *testing.T) {
 	}
 }
 
+func TestTaskCreateExplainsHowToSetMissingActor(t *testing.T) {
+	h := newHarness(t)
+	h.env.Actor = ""
+
+	code, stdout, stderr := h.run("", "task", "create", "--title", "x")
+	if code != ExitError || stdout != "" {
+		t.Fatalf("task create exit %d stdout %q stderr %q", code, stdout, stderr)
+	}
+	var envelope struct {
+		Error domain.Error `json:"error"`
+	}
+	if err := json.Unmarshal([]byte(stderr), &envelope); err != nil {
+		t.Fatalf("stderr is not a JSON error: %q: %v", stderr, err)
+	}
+	if envelope.Error.Code != domain.CodeInvalidArgument {
+		t.Fatalf("error code %q, want %s", envelope.Error.Code, domain.CodeInvalidArgument)
+	}
+	for _, hint := range []string{"--actor LABEL", "AGENT_BOARD_ACTOR"} {
+		if !strings.Contains(envelope.Error.Message, hint) {
+			t.Fatalf("error message %q does not contain %q", envelope.Error.Message, hint)
+		}
+	}
+	if tasks := decodeJSON[ops.TasksResult](t, h.ok("task", "list")); len(tasks.Tasks) != 0 {
+		t.Fatalf("failed create left tasks: %+v", tasks.Tasks)
+	}
+
+	h.ok("task", "create", "--title", "explicit", "--actor", "human/test")
+	h.env.Actor = "human/env"
+	h.ok("task", "create", "--title", "from environment")
+}
+
 // mcp serves the discovered project's Board over stdio and exits cleanly
 // when the client closes stdin.
 func TestMCPCommand(t *testing.T) {
