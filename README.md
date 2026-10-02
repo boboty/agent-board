@@ -4,7 +4,7 @@
 
 **让交给 AI 的每一项工作，都有明确责任、有证据交付、有独立验收、有记录可追溯。**
 
-Agent Board 首先是一套 **AI 研发工作制度**：规定什么工作值得成为工单、谁负责执行、什么算交付、谁有资格验收，以及中断、返工和人的裁决如何留下记录。
+Agent Board 首先是一套 **AI 研发工作制度**：规定什么工作值得成为工单、谁作为执行者承担工作、什么算交付、谁有资格独立验收，以及中断、返工和人的裁决如何留下记录。
 
 这套制度被写成 harness-independent 的 Workflow Skill；`aboard` 是它的本地参考实现，让不同 Agent、不同会话、不同 Harness 共享同一份任务事实。
 
@@ -23,18 +23,20 @@ Agent Board 首先是一套 **AI 研发工作制度**：规定什么工作值得
 
 这些问题不会随着模型变强而消失。它们不是智能问题，而是**分工、交接、验收和责任边界**的问题。
 
+**核心规则本身并不依赖软件开发，但研发是当前第一个、也是已经过实际项目验证的应用领域。** 其他领域是否采用同样的证据和验收细则，需要分别验证，而不是在这里预设。
+
 人类研发团队靠工单、Review、验收和审计解决这类问题。AI 研发也需要一套明确、能被 Agent 自己遵循的规则。
 
 ## 核心规则
 
-1. **可独立委托的工作，一事一单。** 只有能被独立调度、独立验收、必要时独立交接的工作才进入 Board。Developer 自己的 todo、plan、sub-step 留在 Harness 内部。
-2. **先明确边界，再授权执行。** Task 要写清目标、范围和可检查的验收标准；创建 Task 不等于开工，进入 `READY` 才代表它可以执行。同一 Task workspace 同一时刻最多只有一个当前 Developer。
-3. **交付必须附证据。** “做完了”不是结论。Developer 要记录改了什么、基于什么 baseline、做了哪些检查、结果是什么、哪些内容没有验证以及原因。
-4. **做的人不验收。** Developer 可以自检，但不能宣布 PASS。每一轮正式验收都由一个新的、独立会话/实例的 Verifier 完成，结论是 `PASS`、`RC` 或 `BLOCKED`。
-5. **返工不另起炉灶。** RC 回到原 Task 和原交付边界继续修正；修正后产生新的 delivery，再由新的 Independent Verifier 完整复验。交付、验收和 handoff 事实只追加、不覆盖。
+1. **可独立委托的工作，一事一单。** 只有能被独立调度、独立验收、必要时独立交接的工作才进入 Board。执行者（Worker）自己的 todo、plan、sub-step 留在 Harness 内部。
+2. **先明确边界，再授权执行。** Task 要写清目标、范围和可检查的验收标准；创建 Task 不等于开工，进入 `READY` 才代表它可以执行。同一 Task workspace 同一时刻最多只有一个当前 Worker。
+3. **交付必须附证据。** “做完了”不是结论。Worker 要记录改了什么、基于什么 baseline、做了哪些检查、结果是什么、哪些内容没有验证以及原因。
+4. **做的人不验收。** Worker 可以自检，但不能宣布 PASS。每一轮正式验收都由一个新的、独立会话/实例的 Verifier 完成，结论是 `PASS`、`RC` 或 `BLOCKED`。
+5. **返工不另起炉灶。** RC 回到原 Task 和原交付边界，由 Worker 继续修正；修正后产生新的 delivery，再由新的 Independent Verifier 完整复验。交付、验收和 handoff 事实只追加、不覆盖。
 6. **状态不靠任何一个 Agent 的记忆。** 中断或接管时，从 Task / Board facts、Workspace / Git 和 Agent activity 恢复事实；必要的 handoff 只补充缺失上下文，不另建一份 `PROGRESS.md`。
 
-Human 始终拥有产品意图、READY 优先级以及 push / merge / release 等不可逆动作的最终授权权。Orchestrator 负责调度和记录状态，不写实现、不做验收；Developer 负责实现；Independent Verifier 只读验收。
+Human 始终拥有产品意图、READY 优先级以及 push / merge / release 等不可逆动作的最终授权权。Orchestrator 负责调度和记录状态，不承担工单执行、不做验收；Worker 负责执行和交付；Independent Verifier 只读验收。
 
 > **Agent 管自己的内部步骤；制度只约束必须跨执行者保留下来的责任、证据和裁决。**
 
@@ -47,14 +49,14 @@ Agent Board 把上面的规则落到一份外部、持久、可审计的任务�
 ![Agent Board](docs/images/board.webp)
 
 - **外部事实源**：任务状态不寄托在某个 Agent 的 context、todo 或进度文件里
-- **独立验收**：Developer 交付，新的 Independent Verifier 验证
+- **独立验收**：Worker 交付，新的 Independent Verifier 验证
 - **证据可复查**：delivery / verification / handoff / decision 都有历史记录
 - **跨 Harness**：CLI / MCP / Web 操作同一份事实，不绑定 Claude Code、Codex、OpenCode 或特定模型
 - **本地优先**：一个二进制 + SQLite，无账号、无托管服务、无数据库服务器
 
 实现层面的 Task 状态刻意保持简单：`READY` / `IN_PROGRESS` / `DONE` / `BLOCKED`。
 
-Developer、Verifier、RC、handoff、session 都不是额外的顶层状态；它们是围绕 Task 发生的执行和审计事实。
+Worker、Verifier、RC、handoff、session 都不是额外的顶层状态；它们是围绕 Task 发生的执行和审计事实。
 
 ## 它不是什么
 
@@ -74,18 +76,18 @@ Developer、Verifier、RC、handoff、session 都不是额外的顶层状态；�
 
 Task 创建后先由 Human 看一眼。只有进入 READY，才代表它获得执行授权。
 
-**② Developer 执行并交付证据**
+**② Worker 执行并交付证据**
 
 > 执行 READY 队列，遵循 `agent-board-workflow`。遇到需要我决定的事就停下报告。
 
-Developer 自己管理内部计划，完成后留下稳定 workspace、delivery facts 和足够的验证证据。
+Worker 自己管理内部计划，完成后留下稳定 workspace、delivery facts 和足够的验证证据。
 
 **③ Independent Verifier 独立验收**
 
-由一个**全新、独立会话/实例**的 Verifier 按 Task、完整 diff 和验收标准复核，而不是让 Developer 自己宣布完成。
+由一个**全新、独立会话/实例**的 Verifier 按 Task、完整 diff 和验收标准复核，而不是让 Worker 自己宣布完成。
 
 - PASS → 接受已验证的交付 → 封装 accepted commit → DONE
-- RC → 回 Developer 修正 → 形成新 delivery → 由新的 Independent Verifier 复验
+- RC → 回 Worker 修正 → 形成新 delivery → 由新的 Independent Verifier 复验
 - BLOCKED / 需要 Human 决策 → 停下并记录原因
 
 ![Task 详情：交付、独立验证、审计历史](docs/images/task-detail.webp)
@@ -105,7 +107,7 @@ GitHub Issues / PR / CI / Review 非常适合代码托管平台内的协作和�
 语义上可以自然映射：
 
 - Board Task ↔ Issue / work item
-- Developer delivery ↔ implementation / PR candidate
+- Worker delivery ↔ implementation / PR candidate
 - Verification evidence ↔ CI / review evidence
 - PASS / Closure ↔ accepted delivery / merge boundary
 
@@ -142,8 +144,8 @@ aboard web
 
 **执行端怎么选**
 
-- **只有一个 Claude Code / Codex**：也能用；Developer 和 Verifier 使用彼此独立的会话/实例
-- **想放后台、多任务并行**：可以用 [Paseo](https://github.com/getpaseo/paseo) 这类 Orchestrator 读取 READY 队列，安排 Developer 和 Independent Verifier
+- **只有一个 Claude Code / Codex**：也能用；Worker 和 Verifier 使用彼此独立的会话/实例
+- **想放后台、多任务并行**：可以用 [Paseo](https://github.com/getpaseo/paseo) 这类 Orchestrator 读取 READY 队列，安排 Worker 和 Independent Verifier
 
 想让执行端连 merge / push 也做掉，在本次运行里明确授权即可；不授权就停在已验收的交付边界。
 
@@ -151,7 +153,7 @@ aboard web
 
 - Task 创建不等于开工：只有进入 READY，才表示它可以执行
 - 语义不清、冲突、异常 → 停下并记录，必要时进入 BLOCKED
-- Developer 无权用“我自检通过”替代独立验收
+- Worker 无权用“我自检通过”替代独立验收
 - merge / push 是否自动完成，由 Human 在本次运行里授权
 
 Agent Board 不是把 Human 从研发里拿掉，而是把 Human 从**盯过程**里拿掉，把注意力留给授权和裁决。
