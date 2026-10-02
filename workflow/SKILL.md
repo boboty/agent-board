@@ -51,6 +51,7 @@ Coordinates one or more Tasks within their current definition.
 - Selects the next Task, checks that it is ready, and starts it.
 - Launches the Developer, continues it, or replaces it.
 - Decides when a delivery is ready for verification and launches a **new** Independent Verifier each time.
+- After PASS, packages the verified workspace as the accepted commit and continues repository integration (see [PASS → DONE](#4-pass--done) and [Closure](#closure)). Commit packaging is a Git delivery operation; it does not write implementation or verify it.
 - Routes RC back to the Developer.
 - Records Task-level state: start, DONE, BLOCKED, resume.
 - Stops for a Human decision when needed.
@@ -171,8 +172,8 @@ Record every delivery and every Verifier verdict, including RC verdicts. They ar
 - The Task has a **baseline**: the commit its workspace starts from.
 - Until PASS there is **no implementation commit**. Development, self-check, and every RC correction happen in the same uncommitted workspace. The Verifier verifies the full diff of that stable workspace against the baseline.
 - A delivery is identified by the baseline plus a **fingerprint** of that diff, including untracked files. Any method that reliably detects a change will do (a hash of `git diff --binary <baseline>` plus untracked file contents, for example). State the method in the `delivery` fact.
-- After PASS, the Developer changes nothing more. It commits the verified workspace once, as the Task's implementation commit.
-- **Checkpoint commits** are allowed only when there is a real recovery risk across sessions, across machines, or over a long interruption. Mark them clearly as checkpoints. They are never the accepted commit, and the final commit after PASS still forms the delivery (fold checkpoints in per project rules). The diff under verification is still measured from the baseline.
+- After PASS, the Developer changes nothing more. The Orchestrator packages the unchanged verified workspace once as the Task's accepted implementation commit. Before packaging, it confirms the workspace still matches the PASS baseline and fingerprint. After packaging, it confirms the accepted commit's diff from the baseline matches the PASS fingerprint and the workspace is clean. If either confirmation fails, the commit is not accepted and the Task does not become DONE. Any content change is a new delivery: the Developer makes it, and a new Independent Verifier checks it.
+- **Checkpoint commits** are allowed only when there is a real recovery risk across sessions, across machines, or over a long interruption. Mark them clearly as checkpoints. They are never the accepted commit; after PASS, the Orchestrator packages the verified workspace as the accepted commit (fold checkpoints in per project rules). The diff under verification is still measured from the baseline.
 - Push and merge need Human authorization unless the project delegates them.
 
 ## Workflow
@@ -220,11 +221,11 @@ Passing tests do not by themselves mean PASS. Any relevant check that failed or 
 When a Verifier returns PASS:
 
 1. The Orchestrator checks that the PASS names the fingerprint still in the workspace.
-2. The Developer commits exactly that workspace as the Task's implementation commit, and changes nothing else.
-3. The Orchestrator checks two things: the commit contains only the verified content (its diff from the baseline matches the verified fingerprint), and the workspace is clean again. If either check fails, the commit is not accepted. Anything new is a new delivery that needs a new Verifier.
+2. Before packaging, the Orchestrator confirms the workspace still matches the PASS baseline and fingerprint. If it does not, the commit is not accepted and the Task does not become DONE.
+3. The Orchestrator packages that unchanged workspace as the Task's accepted implementation commit. It then confirms two things: the commit's diff from the baseline matches the PASS fingerprint, and the workspace is clean. If either check fails, the commit is not accepted and the Task does not become DONE. Any content change is a new delivery: the Developer makes it, then a new Independent Verifier verifies it before it can be accepted.
 4. The Orchestrator records a `delivery` fact naming the accepted commit, then records `DONE` with a short reason such as `Accepted <sha>`.
 
-The `verification` fact is the completion evidence; the accepted commit ties it to Git.
+The `verification` fact is the completion evidence; the accepted commit ties it to Git. Packaging the commit does not give the Orchestrator implementation-writing or verification responsibility.
 
 Only an Independent Verifier PASS or an explicit Human acceptance (recorded as a `note` or `verification` fact by the Human) justifies DONE. The Developer's word, a self-review, or the Orchestrator's own reading do not.
 
