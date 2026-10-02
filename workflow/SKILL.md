@@ -61,7 +61,7 @@ The Orchestrator does not write implementation, does not verify, and does not ch
 
 The **only writer** of the implementation for its Task.
 
-- Implements the Task within its definition and self-checks: runs the applicable tests, lint, type checks, and real API/UI checks.
+- Implements the Task within its definition and self-checks: derives the check scope from the Task's acceptance boundary and plausible impact radius, and gathers the smallest sufficient evidence for correctness and safety. Repository-wide build, test, vet, or e2e checks are not default actions. Expand validation when the change could affect a broader area, available evidence leaves a concrete uncertainty, or the Task explicitly requires it. A check unrelated to the Task, or a slow or failing check, does not automatically become a delivery gate; assess any failure against the affected behavior and acceptance criteria.
 - Delivers a stable, identifiable workspace (see [Git delivery boundary](#git-delivery-boundary)) along with evidence and limitations.
 - Reports blockers, scope questions, and out-of-scope findings to the Orchestrator.
 
@@ -87,7 +87,7 @@ A Task is defined when its Board fields let a Developer and an independent Verif
 
 - **title**: the outcome in a few words.
 - **description**: goal; scope; what must not change; inputs and outputs; constraints; dependencies on other Tasks; project-specific exceptions and their reasons.
-- **acceptance_criteria**: concrete, checkable conditions, including the real API/UI/database checks when they apply. "Works correctly" is not a criterion.
+- **acceptance_criteria**: concrete, checkable conditions, including the minimum evidence needed to establish correctness and safety in proportion to the expected change radius and risk, and real API/UI/database checks when they apply. Do not require re-proving existing system guarantees outside the affected scope. "Works correctly" is not a criterion.
 
 A Task is **ready** when, in addition:
 
@@ -206,13 +206,14 @@ The Orchestrator then launches a **new** Independent Verifier with the Task, the
 The Verifier:
 
 - confirms the fingerprint at the start and again at the end. If it changed, it stops, reports it, and its conclusion is void;
+- derives verification scope from the Task's acceptance boundary and plausible impact radius, and checks the minimum evidence needed for correctness and safety. Repository-wide build, test, vet, or e2e checks are not default actions. It may expand validation for a specific risk found in the delivery, broader plausible impact, uncertainty in available evidence, or an explicit Task requirement; it gives the reason for that expansion rather than expanding merely to be safe. Unrelated, slow, or failing checks do not automatically become delivery gates;
 - checks each acceptance criterion against the full diff from the baseline and the related code, not only the Developer's summary;
 - follows the real business path through code and tests. It judges whether mocks, hand-built data, or same-source assumptions bypass the core risk. It runs checks itself when the evidence is not enough, including real API/UI/database checks when they apply;
 - looks for missed edge cases, errors, logging, secrets, and changes outside the Task's scope;
 - may read earlier verification facts, but verifies the whole Task again rather than only the previous RC items;
 - returns a verdict with its evidence and limitations, and records it as a `verification` fact.
 
-Passing tests do not by themselves mean PASS. Any check that failed or was skipped is named, its impact assessed, and judged against the Task.
+Passing tests do not by themselves mean PASS. Any relevant check that failed or was skipped is named, its impact assessed, and judged against the Task.
 
 ### 4. PASS → DONE
 
