@@ -345,3 +345,57 @@ func TestWebBoardInRealBrowser(t *testing.T) {
 		t.Fatalf("web audit events %v, want %v", webTypes, wantTypes)
 	}
 }
+
+func TestCompletedHistoryInRealBrowser(t *testing.T) {
+	b := startBoard(t)
+	ctx := newBrowser(t)
+	run(t, ctx, "open empty history", chromedp.Navigate(b.url+"/completed/"), chromedp.WaitVisible(`.completed-page`))
+	if body := evalJSON[string](t, ctx, `document.body.innerText`); !strings.Contains(body, "暂无已完成任务") || !strings.Contains(body, "返回首页") {
+		t.Fatalf("empty completed history or home link missing: %q", body)
+	}
+
+	// Create tasks in number order but complete them in that same order, so
+	// newest-first display is the reverse of task number/creation order.
+	for i := 1; i <= 21; i++ {
+		b.cli("task", "create", "--title", fmt.Sprintf("History task %02d", i))
+		b.cli("task", "queue", fmt.Sprint(i), "--version", "1")
+		b.cli("task", "set-state", fmt.Sprint(i), "DONE", "--version", "2")
+	}
+
+	run(t, ctx, "open home", chromedp.Navigate(b.url+"/"), chromedp.WaitVisible(`[data-column="DONE"]`))
+	homeDone := evalJSON[[]int64](t, ctx, `[
+  ...document.querySelectorAll('[data-column="DONE"] [data-task]')
+].map(e => Number(e.dataset.task))`)
+	if !slices.Equal(homeDone, []int64{21, 20, 19, 18, 17, 16, 15, 14}) {
+		t.Fatalf("home DONE cards %v, want latest eight", homeDone)
+	}
+	if body := evalJSON[string](t, ctx, `document.querySelector('[data-column="DONE"]').innerText`); !strings.Contains(body, "当前已完成: 21") || !strings.Contains(body, "查看全部已完成") {
+		t.Fatalf("home total/history entry missing: %q", body)
+	}
+	run(t, ctx, "open completed history", chromedp.Click(`[data-column="DONE"] a[href="/completed/"]`), chromedp.WaitVisible(`.completed-list`))
+	first := evalJSON[map[string]any](t, ctx, `({
+  page: Number(document.querySelector('[data-completed-page]').dataset.completedPage),
+  total: document.querySelector('.completed-heading').innerText,
+  count: document.querySelectorAll('.completed-list [data-task]').length,
+  numbers: [...document.querySelectorAll('.completed-list [data-task]')].map(e => Number(e.dataset.task))
+})`)
+	if first["page"] != float64(1) || first["count"] != float64(20) || !strings.Contains(first["total"].(string), "21") {
+		t.Fatalf("first history page metadata: %#v", first)
+	}
+
+	run(t, ctx, "go to last history page", chromedp.Click(`.completed-pagination a[href="/completed/?page=2"]`), chromedp.WaitVisible(`[data-completed-page="2"]`))
+	lastNumbers := evalJSON[[]int64](t, ctx, `[...document.querySelectorAll('.completed-list [data-task]')].map(e => Number(e.dataset.task))`)
+	if !slices.Equal(lastNumbers, []int64{1}) || evalJSON[bool](t, ctx, `!!document.querySelector('.completed-pagination a[href*="page=3"]')`) {
+		t.Fatalf("last page tasks/navigation: %v", lastNumbers)
+	}
+	run(t, ctx, "return to first history page", chromedp.Click(`.completed-pagination a[href="/completed/?page=1"]`), chromedp.WaitVisible(`[data-completed-page="1"]`))
+	if got := evalJSON[int](t, ctx, `document.querySelectorAll('.completed-list [data-task]').length`); got != 20 {
+		t.Fatalf("first history page contains %d tasks, want 20", got)
+	}
+	run(t, ctx, "return to last history page", chromedp.Click(`.completed-pagination a[href="/completed/?page=2"]`), chromedp.WaitVisible(`[data-completed-page="2"]`))
+	run(t, ctx, "open task detail from history", chromedp.Click(`.completed-list a[href="/?task=1"]`), chromedp.WaitVisible(`#drawer[data-detail="1"]`))
+	run(t, ctx, "return to home from detail", chromedp.Click(`#drawer-close`), chromedp.WaitVisible(`[data-column="READY"]`))
+	if !strings.Contains(evalJSON[string](t, ctx, `document.body.innerText`), "AI 研发任务看板") {
+		t.Fatal("task detail did not return to home")
+	}
+}

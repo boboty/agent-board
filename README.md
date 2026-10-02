@@ -129,6 +129,14 @@ Board's version checks, idempotency, transactions, and audit apply unchanged.
 Writes are recorded with `--actor` / `$AGENT_BOARD_ACTOR`, else `web`. The
 page follows changes made by any process (polling with ETags).
 
+The home DONE column shows at most 8 tasks and links to `/completed/`, where
+current DONE tasks are shown 20 per page. Completion time comes from the
+latest recorded state-change event whose transition enters DONE. If no such
+event exists, the page shows “时间缺失”; those tasks follow tasks with a
+recorded completion time and use ascending task number as their stable order.
+Equal completion times also use ascending task number. Only tasks whose
+current recorded state is DONE appear in either view.
+
 Only loopback binds are accepted. Requests must name the bound host
 (`127.0.0.1:PORT` or `localhost:PORT`) and a same-origin `Origin`; writes also
 need the per-process CSRF token embedded in the page. The page loads no

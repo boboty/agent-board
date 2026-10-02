@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"github.com/boboty/agent-board/internal/board"
@@ -26,6 +27,25 @@ type boardView struct {
 	Detail       *detailView
 	States       []domain.State
 	FactKinds    []domain.FactKind
+	DoneCards    []completedTask
+	DoneTotal    int
+}
+
+const (
+	homeDoneLimit     = 8
+	completedPageSize = 20
+)
+
+type completedTask struct {
+	Task        domain.Task
+	CompletedAt *time.Time
+}
+
+type completedPageView struct {
+	Tasks     []completedTask
+	Total     int
+	Page      int
+	PageCount int
 }
 
 type column struct {
@@ -129,6 +149,17 @@ func loadBoard(ctx context.Context, service *ops.Service, taskRef string) (board
 	}
 	view := boardView{T: &zhCN, ReadyVersion: ready.Version, States: domain.States, FactKinds: domain.FactKinds}
 	view.Columns, view.Unqueued = groupByState(list.Tasks)
+	completed, err := loadCompletedTasks(ctx, service, list.Tasks)
+	if err != nil {
+		return boardView{}, err
+	}
+	view.DoneTotal = len(completed)
+	view.DoneCards = completed[:min(homeDoneLimit, len(completed))]
+	for i := range view.Columns {
+		if view.Columns[i].State == domain.StateDone {
+			view.Columns[i].Cards = []card{}
+		}
+	}
 	if taskRef == "" {
 		return view, nil
 	}
@@ -138,6 +169,83 @@ func loadBoard(ctx context.Context, service *ops.Service, taskRef string) (board
 	}
 	view.Detail = &detail
 	return view, nil
+}
+
+// loadCompleted reads all current DONE tasks and scans the audit event cursor
+// in bounded chunks. The latest transition from a non-DONE state into DONE
+// supplies completion time; missing history remains explicitly unknown.
+func loadCompleted(ctx context.Context, service *ops.Service) ([]completedTask, error) {
+	list, err := service.ListTasks(ctx, ops.ListTasksArgs{States: []domain.State{domain.StateDone}})
+	if err != nil {
+		return nil, err
+	}
+	return loadCompletedTasks(ctx, service, list.Tasks)
+}
+
+func loadCompletedTasks(ctx context.Context, service *ops.Service, tasks []domain.Task) ([]completedTask, error) {
+	currentDone := make(map[string]domain.Task, len(tasks))
+	for _, task := range tasks {
+		if task.State != nil && *task.State == domain.StateDone {
+			currentDone[task.ID] = task
+		}
+	}
+	completedAt := make(map[string]time.Time, len(currentDone))
+	afterID := int64(0)
+	for {
+		result, err := service.ListEvents(ctx, ops.ListEventsArgs{AfterID: afterID, Limit: board.MaxEventLimit})
+		if err != nil {
+			return nil, err
+		}
+		for _, event := range result.Events {
+			afterID = event.ID
+			if event.Type != domain.EventTaskStateSet || event.TaskID == nil {
+				continue
+			}
+			if _, ok := currentDone[*event.TaskID]; !ok {
+				continue
+			}
+			var payload struct {
+				From domain.State `json:"from"`
+				To   domain.State `json:"to"`
+			}
+			if json.Unmarshal(event.Payload, &payload) == nil && payload.From.Valid() && payload.To == domain.StateDone && payload.From != domain.StateDone {
+				completedAt[*event.TaskID] = event.CreatedAt
+			}
+		}
+		if len(result.Events) < board.MaxEventLimit {
+			break
+		}
+	}
+	completed := make([]completedTask, 0, len(currentDone))
+	for id, task := range currentDone {
+		item := completedTask{Task: task}
+		if at, ok := completedAt[id]; ok {
+			item.CompletedAt = &at
+		}
+		completed = append(completed, item)
+	}
+	slices.SortFunc(completed, compareCompleted)
+	return completed, nil
+}
+
+func compareCompleted(a, b completedTask) int {
+	switch {
+	case a.CompletedAt != nil && b.CompletedAt == nil:
+		return -1
+	case a.CompletedAt == nil && b.CompletedAt != nil:
+		return 1
+	case a.CompletedAt != nil && b.CompletedAt != nil:
+		if cmp := b.CompletedAt.Compare(*a.CompletedAt); cmp != 0 {
+			return cmp
+		}
+	}
+	if a.Task.Number < b.Task.Number {
+		return -1
+	}
+	if a.Task.Number > b.Task.Number {
+		return 1
+	}
+	return 0
 }
 
 func loadDetail(ctx context.Context, service *ops.Service, ref string) (detailView, error) {
