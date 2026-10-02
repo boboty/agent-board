@@ -242,6 +242,8 @@ func TestSkillCommands(t *testing.T) {
 	if result.Skills[0].Status[1].Status != "different" {
 		t.Fatalf("install overwrote unmanaged content: %+v", result.Skills[0].Status)
 	}
+	h.ok("skill", "install", "--force", "workflow")
+	check("workflow", "current")
 	if err := os.WriteFile(targets("workflow")[1].path, []byte(show), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -252,6 +254,88 @@ func TestSkillCommands(t *testing.T) {
 		t.Fatalf("default install did not include both: %s", all)
 	}
 	check("management", "current")
+}
+
+func TestSkillInstallForceIsExplicitAndScoped(t *testing.T) {
+	home := t.TempDir()
+	h := &harness{t: t, env: Env{Home: home}}
+	h.ok("skill", "install")
+	managementPath := filepath.Join(home, ".agents", "skills", "agent-board-management", "SKILL.md")
+	workflowPath := filepath.Join(home, ".agents", "skills", "agent-board-workflow", "SKILL.md")
+	linkedContent := filepath.Join(t.TempDir(), "user-owned-skill.md")
+	if err := os.WriteFile(managementPath, []byte("user management content"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(linkedContent, []byte("user workflow content"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(workflowPath); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(linkedContent, workflowPath); err != nil {
+		t.Fatal(err)
+	}
+
+	h.ok("skill", "install")
+	for path, want := range map[string]string{managementPath: "user management content", workflowPath: "user workflow content"} {
+		got, err := os.ReadFile(path)
+		if err != nil || string(got) != want {
+			t.Fatalf("default install changed %s to %q: %v", path, got, err)
+		}
+	}
+
+	forcedWorkflow := h.ok("skill", "install", "--force", "workflow")
+	if repeated := h.ok("skill", "install", "workflow", "--force"); repeated != forcedWorkflow {
+		t.Fatalf("repeat forced workflow install differs:\nfirst %s\nnext %s", forcedWorkflow, repeated)
+	}
+	managementBeforeForce, err := os.ReadFile(managementPath)
+	if err != nil || string(managementBeforeForce) != "user management content" {
+		t.Fatalf("forcing workflow changed management content: %q, %v", managementBeforeForce, err)
+	}
+	workflowContent, err := os.ReadFile(workflowPath)
+	if err != nil || string(workflowContent) != workflow.Skill {
+		t.Fatalf("forced workflow content differs from embedded Skill: %v", err)
+	}
+	linked, err := os.ReadFile(linkedContent)
+	if err != nil || string(linked) != "user workflow content" {
+		t.Fatalf("forcing workflow changed symlink target content: %q, %v", linked, err)
+	}
+	workflowCheck := h.ok("skill", "check", "workflow")
+	if !strings.Contains(workflowCheck, `"status": "current"`) {
+		t.Fatalf("workflow is not current after force: %s", workflowCheck)
+	}
+	managementCheck := h.ok("skill", "check", "management")
+	if !strings.Contains(managementCheck, `"status": "different"`) {
+		t.Fatalf("unselected management Skill did not remain different: %s", managementCheck)
+	}
+
+	h.ok("skill", "install", "--force", "management")
+	managementContent, err := os.ReadFile(managementPath)
+	if err != nil || string(managementContent) != management.Skill {
+		t.Fatalf("forced management content differs from embedded Skill: %v", err)
+	}
+	if err := os.WriteFile(managementPath, []byte("stale management"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(workflowPath, []byte("stale workflow"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	allForced := h.ok("skill", "install", "--force")
+	if !strings.Contains(allForced, `"skill": "management"`) || !strings.Contains(allForced, `"skill": "workflow"`) {
+		t.Fatalf("force without selector did not include both Skills: %s", allForced)
+	}
+	managementContent, err = os.ReadFile(managementPath)
+	if err != nil || string(managementContent) != management.Skill {
+		t.Fatalf("force without selector did not update management: %v", err)
+	}
+	workflowContent, err = os.ReadFile(workflowPath)
+	if err != nil || string(workflowContent) != workflow.Skill {
+		t.Fatalf("force without selector did not update workflow: %v", err)
+	}
+	allCheck := h.ok("skill", "check")
+	if strings.Contains(allCheck, `"status": "different"`) || strings.Contains(allCheck, `"status": "missing"`) {
+		t.Fatalf("all Skills are not current after force without selector: %s", allCheck)
+	}
 }
 
 func TestSkillInstallAndCheckPreserveUnmanagedSkillFiles(t *testing.T) {
@@ -329,7 +413,7 @@ func TestDoctorReportsHealthyAndMissingComponentsWithoutWriting(t *testing.T) {
 	before = snapshotTree(t, h.env.Home, h.repo)
 	code, out, stderr = h.run("", "doctor")
 	assertDoctorEnglish(t, out)
-	if code != ExitError || stderr != "" || !strings.Contains(out, "Skills   PROBLEM") || !strings.Contains(out, "codex=different") || !strings.Contains(out, "1 installed copy has different content") || strings.Contains(out, "missing") || !strings.Contains(out, "Review differing installed content manually") || !strings.Contains(out, "Next step:") {
+	if code != ExitError || stderr != "" || !strings.Contains(out, "Skills   PROBLEM") || !strings.Contains(out, "codex=different") || !strings.Contains(out, "1 installed copy has different content") || strings.Contains(out, "missing") || !strings.Contains(out, "Different installed Skill content is preserved by default") || !strings.Contains(out, "aboard skill install --force workflow") || !strings.Contains(out, "Next step:") {
 		t.Fatalf("different Skill doctor exit %d stdout %q stderr %q", code, out, stderr)
 	}
 	if after := snapshotTree(t, h.env.Home, h.repo); !reflect.DeepEqual(before, after) {

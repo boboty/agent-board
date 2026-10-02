@@ -69,7 +69,7 @@ Project:
   web [--addr HOST:PORT]       serve the Web Board on a loopback address (default: free port on 127.0.0.1)
 
 Skills:
-  skill install [management|workflow] install all embedded Skills by default, or select one
+  skill install [--force] [management|workflow] install all embedded Skills by default, or select one
   skill check [management|workflow]   check installation status for all Skills by default, or select one
   skill show management|workflow      display the specified embedded Skill
 
@@ -260,12 +260,23 @@ type skillInstallStatus struct {
 }
 
 func runSkillInstall(args []string, env Env) error {
-	if len(args) > 1 {
-		return usagef("skill install accepts at most one selector: management or workflow")
-	}
 	selector := ""
-	if len(args) == 1 {
-		selector = args[0]
+	force := false
+	for _, arg := range args {
+		switch arg {
+		case "--force":
+			if force {
+				return usagef("skill install accepts --force at most once")
+			}
+			force = true
+		case "management", "workflow":
+			if selector != "" {
+				return usagef("skill install accepts at most one selector: management or workflow")
+			}
+			selector = arg
+		default:
+			return usagef("unknown skill install argument %q (choose --force, management, or workflow)", arg)
+		}
 	}
 	selected, err := selectSkills(selector, false)
 	if err != nil {
@@ -276,7 +287,7 @@ func runSkillInstall(args []string, env Env) error {
 		targets := uniqueSkillTargets(skillTargets(env.Home, skill.Name))
 		statuses := make([]skillInstallStatus, 0, len(targets)+1)
 		for _, target := range targets {
-			status, err := installSkill(target, skill.Content)
+			status, err := installSkill(target, skill.Content, force)
 			if err != nil {
 				return err
 			}
@@ -315,13 +326,18 @@ func uniqueSkillTargets(targets []skillTarget) []skillTarget {
 	return unique
 }
 
-func installSkill(target skillTarget, content string) (string, error) {
+func installSkill(target skillTarget, content string, force bool) (string, error) {
 	contents, err := os.ReadFile(target.Path)
 	switch {
 	case err == nil && string(contents) == content:
 		return "current", nil
-	case err == nil:
+	case err == nil && !force:
 		return "different", nil
+	case err == nil:
+		if err := replaceSkillFile(target.Path, content); err != nil {
+			return "", fmt.Errorf("upgrade %s skill at %s: %w", target.Harness, target.Path, err)
+		}
+		return "current", nil
 	case !errors.Is(err, os.ErrNotExist):
 		return "", fmt.Errorf("check %s skill at %s: %w", target.Harness, target.Path, err)
 	}
@@ -332,6 +348,27 @@ func installSkill(target skillTarget, content string) (string, error) {
 		return "", fmt.Errorf("install %s skill at %s: %w", target.Harness, target.Path, err)
 	}
 	return "current", nil
+}
+
+func replaceSkillFile(path, content string) error {
+	tmp, err := os.CreateTemp(filepath.Dir(path), ".SKILL.md-*")
+	if err != nil {
+		return err
+	}
+	tmpPath := tmp.Name()
+	defer os.Remove(tmpPath)
+	if err := tmp.Chmod(0o644); err != nil {
+		tmp.Close()
+		return err
+	}
+	if _, err := io.WriteString(tmp, content); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	return os.Rename(tmpPath, path)
 }
 
 func removeEmptySkillDirs(dir, stop string) {
@@ -706,7 +743,7 @@ func runDoctor(ctx context.Context, args []string, env Env) error {
 			healthy = false
 			next = "Run `aboard skill check management` or `aboard skill check workflow` to inspect the corresponding content."
 			if skillHasDifferent {
-				next += " Review differing installed content manually; `aboard skill install` does not overwrite it."
+				next += " Different installed Skill content is preserved by default. To overwrite the selected Skill with this binary's embedded content, run `aboard skill install --force management` or `aboard skill install --force workflow`."
 			}
 			if skillHasMissing {
 				next += " Install missing Skills with `aboard skill install management` or `aboard skill install workflow`."

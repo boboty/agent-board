@@ -161,6 +161,16 @@ aboard skill show management
 aboard skill show workflow
 ```
 
+### Upgrade Skills
+
+Regular installation adds missing Skills and preserves installed content that differs. To replace a selected Skill with the version embedded in the current `aboard` binary, use `--force` explicitly:
+
+```bash
+aboard skill install --force workflow
+```
+
+Omit `workflow` or `management` to apply `--force` to both Skills.
+
 ## CLI, Web, and MCP
 
 You can use the Web Board directly, or let agents operate the same Board through CLI or MCP.

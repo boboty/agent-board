@@ -161,6 +161,16 @@ aboard skill show management
 aboard skill show workflow
 ```
 
+### 升级 Skill
+
+普通安装会补齐缺少的 Skill，并保留内容不同的已安装版本。确认要用当前 `aboard` 内嵌版本覆盖时，显式使用 `--force`，可只升级一个 Skill：
+
+```bash
+aboard skill install --force workflow
+```
+
+省略 `workflow` 或 `management` selector 时，`--force` 会作用于两个 Skill。
+
 ## CLI、Web、MCP
 
 你可以只用 Web，也可以让 Agent 通过 CLI 或 MCP 操作同一块 Board。
