@@ -2,55 +2,90 @@
 
 [中文](README.md) | [English](README_EN.md)
 
-**一个面向 AI 辅助研发的、本地优先、Harness 无关的共享任务看板。**
+**把 AI 研发任务从聊天记录里拿出来。**
 
-AI Agent 很会列 todo，但长期维护状态并不是它们的强项。任务一旦跨会话、跨 Agent、跨 Harness、跨 worktree，状态如果还留在聊天记录、todo list 或某个 Agent runtime 里，很快就会失真。
+如果你已经开始让 Codex、Claude Code、OpenCode 或其他 Agent 连续做多个开发任务，你大概会遇到同一个问题：
 
-Agent Board 把**任务级共享状态**独立出来，让任务管理和任务执行通过一块稳定的 Board 解耦。
+- todo 写得很好，但过一会儿就和实际进度对不上；
+- 换一个会话，要重新解释“做到哪了”；
+- Developer 说做完了，你还得自己追着确认有没有验收；
+- 两个 Agent 一并行，很快就不知道谁在做什么；
+- 真正耗人的不是写代码，而是盯执行。
 
-> **代码提供能力，Skill 定义规则。**
+Agent Board 做的事情很简单：**把 Task、状态、交付和验收放到一个共享 Board 里。**
+
+你继续在自己习惯的 AI 对话里聊想法。想清楚了，就把它变成 Task；Task 进入 READY 后，执行器自己去做、验收、收尾。你只在需要裁决时回来。
+
+> 用上以后，目标不是多一个看板要维护，而是少盯几个 Agent。
+
+## 先看它怎么用
+
+假设你正在一个项目里，发现：
+
+> `aboard --help` 的 Skills 区域中英文风格不一致。
+
+你不需要自己写任务卡，也不需要先打开某个专用执行界面。
+
+### 1. 在 Codex 里说一句
+
+> 把这个想法整理成一个 Board Task，先不要入队，也不要开始实现。
+
+Codex 会把它整理成一个未入队 Task。你可以在 Web Board 里看一眼，觉得合适，就告诉它：
+
+> 这个 Task 我接受了，排到 READY 末尾。
+
+也可以直接在 Web Board 里手动入队。
+
+### 2. 让 Paseo 开始干活
+
+在同一个项目里启动 Paseo，告诉它：
+
+> 从当前项目 Agent Board 读取并执行 READY Tasks，遵循 `agent-board-workflow`。使用 Paseo 已配置的 Agent Profiles。持续处理直到 READY 队列为空，或遇到需要 Human 裁决的事项时停止并报告。
+
+之后你不用继续盯着它。
+
+Paseo 会读取 READY Task，安排 Developer 实现，再启动一个新的 Independent Verifier 验收。PASS 后，Orchestrator 把验收过的 workspace 封装成 commit。
+
+如果你愿意把正常收尾也交出去，再加一句：
+
+> 如果任务完成并验收通过，自动合入 main、push origin/main，push 成功后清理对应的本地 worktree 和分支；遇到冲突或异常时停止并报告。
+
+### 3. 你看到的是结果
 
 ```text
-Human / Codex / Claude Code / OpenCode
-                 ↓
-      agent-board-management
-                 ↓
-            Agent Board
-                 ↓
-       agent-board-workflow
-                 ↓
-      Orchestrator / Harness
-          ↓             ↓
-     Developer   Independent Verifier
+想法
+ ↓
+Task
+ ↓
+READY
+ ↓
+执行 + 独立验收
+ ↓
+DONE
 ```
 
-管理端和执行端可以是同一个 Harness，也可以完全不同。一个 Harness 就能工作，多 Harness 和并行 Orchestrator 只是增强。
+平时你只需要决定：**做什么、先做什么、遇到分歧怎么裁决。**
 
-## 为什么需要 Agent Board
+至于由哪个 Agent 写、哪个 Agent 验、任务在哪个 worktree 里跑，这些都可以留在执行层。
 
-- **状态不住在对话里**：Task、READY 顺序、交付、验收、handoff 和审计都进入共享账本。
-- **管理与执行解耦**：你可以在一个对话里讨论并排 Task，让另一个 Orchestrator 持续消费 READY。
-- **Harness 无关**：CLI 是基线能力；Web 和 MCP 只是同一套 Board operations 的不同适配器。
-- **本地优先**：无需账号、云服务或数据库服务器；Board 默认使用本地 SQLite。
-- **适合并行协作**：不同 Task 可以在独立 worktree 中并行执行，共享同一块 Board。
-- **验证成本与任务风险匹配**：Developer 和 Independent Verifier 使用最小充分证据，不默认把小改动升级成全仓体检。
-
-## 30 秒开始
+## 5 分钟开始
 
 要求：**Go 1.25+**。
+
+安装：
 
 ```bash
 go install github.com/boboty/agent-board/cmd/aboard@latest
 aboard skill install
 ```
 
-确保 Go 的 bin 目录在 `PATH` 中：
+如果 `aboard` 不在 PATH：
 
 ```bash
 export PATH="$(go env GOPATH)/bin:$PATH"
 ```
 
-在你的项目中初始化：
+进入你的项目：
 
 ```bash
 cd your-project
@@ -59,134 +94,78 @@ aboard doctor
 aboard web
 ```
 
-`aboard init` 会创建 `.agent-board.json`。建议把它提交到仓库；它保存项目身份，让同一项目的不同 worktree 和进程自动连接到同一块 Board。
+`aboard init` 会创建 `.agent-board.json`。建议把它提交到仓库，这样同一项目的不同 worktree 和进程都会找到同一块 Board。
 
-`aboard web` 默认监听 `127.0.0.1` 的一个空闲端口，并输出实际 URL，因此多个项目可以同时打开 Web Board。
+`aboard web` 会在 `127.0.0.1` 上自动选择一个空闲端口并输出 URL。多个项目可以同时开着自己的 Board。
 
-## 第一次真实使用：从想法到执行
+然后就可以回到 Codex、Claude Code 或其他本地 Harness 里，用自然语言开始创建 Task。
 
-安装和 `aboard web` 只是把 Board 准备好。真正开始使用时，不需要先学一套复杂命令：让管理端 Harness 负责把想法变成 Task，让执行端 Orchestrator 消费 READY 即可。
+## 日常使用是什么感觉
 
-### 1. 在 Codex 中把想法变成 Task
-
-在已经初始化 Agent Board 的项目目录中打开 Codex，直接用自然语言描述需求。例如：
-
-> `aboard --help` 的 Skills 区域中英文风格不一致。请把这个想法整理成一个 Board Task，先不要入队，也不要开始实现。
-
-如果 `agent-board-management` 已安装，Codex 会读取当前项目的 Board 和任务语境，把需求整理成一个**未入队 Task**。你可以在 Web Board 中查看、修改和确认它。
-
-确认 Task 已经足够清楚后，可以继续对 Codex 说：
-
-> 这个 Task 我接受了，排到 READY 末尾。
-
-也可以直接在 Web Board 中手动入队。进入 READY 只表示“可以执行”，不会自动开始实现。
-
-### 2. 让 Paseo 开始消费 READY
-
-在同一项目中新开一个 Paseo Orchestrator 会话，使用一条很短的启动指令：
-
-> 从当前项目 Agent Board 读取并执行 READY Tasks，遵循 `agent-board-workflow`。使用 Paseo 已配置的 Agent Profiles。持续处理直到 READY 队列为空，或遇到需要 Human 裁决的事项时停止并报告。
-
-Paseo 会从 Board 读取最新 Task，并按 Workflow Skill 协调 Developer 与 fresh Independent Verifier。Agent Board 不要求使用 Paseo；任何能够读取 Board 并遵循 Workflow Skill 的本地 Orchestrator 都可以消费 READY。
-
-如果你希望正常 happy path 连 Git 收尾也一起自动完成，可以在启动指令后追加本轮授权：
-
-> 如果任务完成并验收通过，自动合入 main、push origin/main，push 成功后清理对应的本地 worktree 和分支；遇到冲突或异常时停止并报告。
-
-这类 merge / push 授权属于**本次运行策略**，不写进 Task，也不改变 Board 语义。
-
-### 3. 之后的日常使用
+你可以把 Agent Board 当成 AI 研发里的共享任务账本：
 
 ```text
-讨论想法
-  ↓
-Codex / Claude Code + Management Skill
-  ↓
-未入队 Task
-  ↓ Human 接受
-READY
-  ↓
-Paseo / Orca / 其他 Orchestrator + Workflow Skill
-  ↓
-Developer → Independent Verifier
-  ↓
-DONE
+Codex / Claude Code / OpenCode
+        ↓
+   创建和管理 Task
+        ↓
+     Agent Board
+        ↓
+ Paseo / Orca / 其他 Orchestrator
+        ↓
+ Developer + Independent Verifier
 ```
 
-之后你通常只需要管理想法、Task 和优先级；执行器负责消费 READY，只有遇到需要 Human 裁决的情况才回来找你。
+管理端和执行端可以是同一个 Harness，也可以完全不同。
 
-## 核心模型
+只有一个 Codex 也能工作；有 Paseo / Orca 这样的专用 Orchestrator 时，可以把执行进一步放到后台。不同 Task 之间足够独立时，也可以同时跑。
 
-Agent Board 的 Task 只有四种显式状态：
+## 你始终保留控制权
 
-- `READY`
-- `IN_PROGRESS`
-- `DONE`
-- `BLOCKED`
+Agent Board 不会因为 Task 存在就自动开始开发。
 
-Task 可以在未入队时作为草稿存在；是否进入 READY 是独立的 queue 信息，不是第五种状态。
+- Task 可以先作为草稿存在；
+- 只有你接受并放入 READY，才表示它可以执行；
+- 遇到产品语义不清、冲突或异常时，执行器应该停下来找 Human；
+- merge / push 是否自动完成，由你在本次运行里授权。
 
-Board 记录的是事实，包括：
+它不是为了把 Human 从研发里拿掉，而是把 Human 从**盯过程**里拿掉。
 
-- Task 定义与版本
-- READY 排序
-- 显式 Task 状态
-- execution / delivery / verification / handoff 等 facts
-- immutable audit events
+## Board 里会看到什么
 
-Board **不**决定谁来开发、什么时候启动 Verifier、RC 怎么处理、什么时候允许 DONE。这些规则属于 Skill。
+Web Board 只有四个当前状态：
 
-## 两个独立 Skill
+- `READY` — 可以执行
+- `IN_PROGRESS` — 正在执行
+- `DONE` — 已完成
+- `BLOCKED` — 等待处理
 
-### `agent-board-management`
+未入队 Task 单独显示，不会伪装成第五种状态。
 
-用于任务管理：创建、编辑、接受并入队、排序和查看 Task。它不会启动实现。
+每个 Task 都能看到它的内容、执行记录、交付、验收和历史事件。DONE 首页只保留最近完成的一批，完整历史可以分页查看。
 
-典型用法是：在 Codex、Claude Code 或其他本地 Harness 中讨论想法，让 Agent 把已经想清楚的内容整理成 Board Task；Human 再决定是否入 READY。
+## 两个 Skill 各管一件事
 
-### `agent-board-workflow`
+安装 `aboard skill install` 后，会得到两个独立 Skill：
 
-用于任务执行：定义 Orchestrator、Developer 和 Independent Verifier 的协作边界。
+- **`agent-board-management`**：帮你把想法整理成 Task、编辑、入队、排序；
+- **`agent-board-workflow`**：告诉执行器如何协作、验收和完成交付。
 
-核心原则包括：
+你不需要记住它们的全部规则。正常情况下，在 Codex / Claude Code 等支持 Skill 的 Harness 里直接用自然语言即可。
 
-- Developer 是唯一 implementation writer，负责实现与 self-check；
-- Independent Verifier 使用全新、独立、只读的会话验收；
-- PASS 后由 Orchestrator 将已验证 workspace 封装为 accepted commit；
-- accepted commit 必须与 PASS 的 baseline / fingerprint 完全一致；
-- 验证范围从 Task 验收边界和实际影响半径推导，不默认执行无关的全仓检查。
-
-两个 Skill 相互独立，可以分别安装、检查和查看：
+如果需要查看：
 
 ```bash
-aboard skill install
 aboard skill check
 aboard skill show management
 aboard skill show workflow
 ```
 
-Skill 会被写入 Harness 的用户级发现路径：Claude Code / OpenCode 使用 `~/.claude/skills`，Codex 使用 `~/.agents/skills`。`aboard skill install` 也会安全处理 Agent Board 早期版本留下的受管 legacy Skill 副本。
+## CLI、Web、MCP
 
-## 一个典型工作流
+你可以只用 Web，也可以让 Agent 通过 CLI 或 MCP 操作同一块 Board。
 
-```text
-1. Human 在习惯的 Harness 里讨论需求
-2. Management Skill 将成熟想法整理为未入队 Task
-3. Human 接受后把 Task 放入 READY
-4. Orchestrator 消费 READY，并创建独立 worktree
-5. Developer 实现并 self-check
-6. fresh Independent Verifier 只读验收
-7. PASS 后 Orchestrator 封装 accepted commit
-8. 经 Human 授权后可继续 merge / push / cleanup
-```
-
-如果两个 READY Task 没有依赖且改动面足够独立，可以由不同 Orchestrator 并行处理。Board 不需要为“并行”增加额外状态；Git 和 Orchestrator 负责代码集成。
-
-## CLI、Web 与 MCP
-
-### CLI
-
-`aboard` 是基线入口。常用命令：
+常用命令：
 
 ```bash
 aboard board
@@ -194,27 +173,9 @@ aboard task list
 aboard ready list
 aboard history 12
 aboard doctor
-aboard operations
 ```
 
-CLI 的 operation 输出为 JSON；`aboard call <operation> '<json>'` 可以直接调用和 MCP 相同的 dispatch。
-
-### Web Board
-
-`aboard web` 提供面向人的本地看板：
-
-- READY / IN PROGRESS / DONE / BLOCKED 四列；
-- 未入队 Task 单独显示；
-- Task 详情、facts 和 audit history；
-- READY 调序；
-- 首页 DONE 只显示最近一批，按最近一次进入 DONE 的时间倒序；
-- `/completed/` 提供完整分页历史。
-
-默认只接受 loopback 地址。
-
-### MCP（可选）
-
-MCP 不是使用 Agent Board 的前提。需要结构化工具调用时，可以让 Harness 通过 stdio 访问同一套 Board operations：
+MCP 是可选项，不是使用前提：
 
 ```bash
 aboard mcp config claude-code
@@ -222,45 +183,39 @@ aboard mcp config codex
 aboard mcp config opencode
 ```
 
-`mcp config` 只打印配置，不会修改 Harness 配置文件。
+## 本地优先
 
-## 本地存储
+不需要账号，不需要部署服务，也不需要单独装数据库。
 
-Board 数据保存在：
+Board 数据默认保存在：
 
 ```text
 ~/.agent-board/<project_id>/board.db
 ```
 
-仓库中的 `.agent-board.json` 只保存项目身份。这样同一项目的多个 worktree、CLI、Web、MCP 和多个进程都能打开同一个 Board，而数据库本身不会进入代码仓库。
+仓库里只需要提交 `.agent-board.json` 这个项目身份文件。
 
-## Agent Board 明确不做什么
+## 它不想成为另一个“大平台”
 
-Agent Board 刻意保持边界克制。它不是：
+Agent Board 不负责模型路由，不负责 Agent runtime，也不要求你换掉现有 IDE、Harness 或工作方式。
 
-- workflow engine
-- Agent runtime
-- model router
-- 云端协作平台
-- IDE / Harness 的替代品
+它只解决一个问题：
 
-它只把一块拼图做好：
+> **让任务管理和任务执行之间，有一个稳定、共享、可审计的交接面。**
 
-> **为任务管理与任务执行之间提供稳定、共享、可审计的任务账本。**
+云同步、团队服务、桌面客户端、远程执行，都可以以后由别的拼图补上。核心 Board 不需要因此变胖。
 
-外围能力可以继续组合，甚至由其他项目完成；核心 Board 不需要因此变成一个大平台。
-
-## 项目文档
+## 更多文档
 
 - [PRODUCT.md](PRODUCT.md) — 产品定义与边界
-- [ARCHITECTURE.md](ARCHITECTURE.md) — 架构分层与持久化方向
+- [ARCHITECTURE.md](ARCHITECTURE.md) — 架构与持久化
 - [management/SKILL.md](management/SKILL.md) — Board Management Skill
 - [workflow/SKILL.md](workflow/SKILL.md) — Workflow Skill
 - [AGENTS.md](AGENTS.md) — 仓库内 Agent 开发约束
 
 ## 从源码开发
 
-普通用户不需要 clone 仓库。参与开发时可以：
+普通用户不需要 clone 仓库。参与开发时：
 
 ```bash
 git clone https://github.com/boboty/agent-board.git
@@ -276,4 +231,4 @@ cd e2e && go test ./...
 
 ## License
 
-Apache-2.0。选择性复用第三方项目代码时，必须保留相应 attribution 与 license notices。
+Apache-2.0。
