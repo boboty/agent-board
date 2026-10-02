@@ -2,55 +2,90 @@
 
 [中文](README.md) | [English](README_EN.md)
 
-**A local-first, harness-independent shared task board for AI-assisted software delivery.**
+**Take AI development tasks out of chat history.**
 
-AI agents are good at producing todo lists, but long-lived state is a different problem. Once work spans sessions, agents, harnesses, or worktrees, state kept in chat history, a todo list, or one agent runtime quickly becomes stale.
+If you have started giving Codex, Claude Code, OpenCode, or other agents a stream of development work, you have probably seen the same failure mode:
 
-Agent Board extracts **task-level shared state** into a stable ledger so task management and task execution can evolve independently.
+- the todo list looks good, then drifts away from reality;
+- a new session needs the whole “where are we?” story again;
+- a Developer says it is done, and you still have to chase verification;
+- two agents run in parallel and nobody has a reliable shared view;
+- the expensive part stops being coding and becomes supervision.
 
-> **Code provides capabilities. Skills define the rules.**
+Agent Board does one simple thing: **put Tasks, state, delivery, and verification into a shared Board.**
+
+You keep discussing ideas in the AI tool you already use. Once an idea is clear, turn it into a Task. When it enters READY, the execution layer can implement, verify, and close it. You come back when a decision is actually needed.
+
+> The goal is not another board to maintain. The goal is fewer agents to babysit.
+
+## See how it feels
+
+Suppose you notice this in a project:
+
+> The Skills section of `aboard --help` mixes Chinese and English.
+
+You do not need to hand-write a task card or switch into a special execution UI.
+
+### 1. Say one thing in Codex
+
+> Turn this idea into a Board Task. Do not queue it yet and do not start implementation.
+
+Codex can turn it into an unqueued Task. Review it in the Web Board, and when it looks right, say:
+
+> I accept this Task. Queue it at the end of READY.
+
+You can also queue it manually in the Web Board.
+
+### 2. Let Paseo do the work
+
+Start Paseo in the same project and tell it:
+
+> Read and execute READY Tasks from the current project's Agent Board, following `agent-board-workflow`. Use the configured Paseo Agent Profiles. Continue until the READY queue is empty or a Human decision is required.
+
+Then stop watching it.
+
+Paseo reads READY, assigns a Developer, and starts a fresh Independent Verifier after delivery. After PASS, the Orchestrator packages the verified workspace into the accepted commit.
+
+If you also want normal Git cleanup to happen automatically, add:
+
+> When a Task is complete and verified, merge it into main, push origin/main, and clean up the corresponding local worktree and branch after the push succeeds. Stop and report on conflicts or unexpected conditions.
+
+### 3. You see the result
 
 ```text
-Human / Codex / Claude Code / OpenCode
-                 ↓
-      agent-board-management
-                 ↓
-            Agent Board
-                 ↓
-       agent-board-workflow
-                 ↓
-      Orchestrator / Harness
-          ↓             ↓
-     Developer   Independent Verifier
+Idea
+ ↓
+Task
+ ↓
+READY
+ ↓
+Implementation + independent verification
+ ↓
+DONE
 ```
 
-The management side and execution side may use the same harness or completely different ones. One harness is enough; multiple harnesses and parallel Orchestrators are optional enhancements.
+Most of the time, your job becomes deciding **what to do, what comes first, and what requires judgment**.
 
-## Why Agent Board
+Which agent writes the code, which agent verifies it, and which worktree it runs in can stay in the execution layer.
 
-- **State does not live in chat**: Tasks, READY order, delivery, verification, handoff, and audit history live in a shared ledger.
-- **Management is decoupled from execution**: discuss and queue work in one conversation, then let another Orchestrator consume READY tasks.
-- **Harness-independent**: CLI is the baseline; Web and MCP are adapters over the same Board operations.
-- **Local-first**: no account, cloud service, or database server is required; the Board uses local SQLite.
-- **Parallel-friendly**: independent Tasks can run in separate worktrees while sharing one Board.
-- **Validation stays proportional to risk**: Developer and Independent Verifier use the smallest sufficient evidence instead of defaulting small changes to repository-wide checks.
-
-## 30-second quick start
+## Start in 5 minutes
 
 Requirement: **Go 1.25+**.
+
+Install:
 
 ```bash
 go install github.com/boboty/agent-board/cmd/aboard@latest
 aboard skill install
 ```
 
-Make sure the Go bin directory is on `PATH`:
+If `aboard` is not on PATH:
 
 ```bash
 export PATH="$(go env GOPATH)/bin:$PATH"
 ```
 
-Initialize a project:
+Initialize your project:
 
 ```bash
 cd your-project
@@ -59,134 +94,78 @@ aboard doctor
 aboard web
 ```
 
-`aboard init` creates `.agent-board.json`. Commit it to the repository so every worktree and process of the project resolves to the same Board.
+`aboard init` creates `.agent-board.json`. Commit it so every worktree and process for the same project resolves to the same Board.
 
-`aboard web` listens on a free loopback port by default and prints the actual URL, so multiple project Boards can run at the same time.
+`aboard web` automatically chooses a free `127.0.0.1` port and prints the URL. Multiple projects can keep their own Boards open at the same time.
 
-## First real workflow: from idea to execution
+Then go back to Codex, Claude Code, or another local harness and start creating Tasks in natural language.
 
-Installation and `aboard web` only prepare the Board. To start using it, you do not need to learn a large command surface: let a management-side harness turn ideas into Tasks, then let an execution-side Orchestrator consume READY.
+## What everyday use looks like
 
-### 1. Turn an idea into a Task in Codex
-
-Open Codex in a project that has already been initialized with Agent Board and describe the work in natural language. For example:
-
-> The Skills section of `aboard --help` mixes Chinese and English. Turn this idea into a Board Task, but do not queue it and do not start implementation.
-
-If `agent-board-management` is installed, Codex can read the current Board context and turn the request into an **unqueued Task**. You can review or edit it in the Web Board.
-
-Once the Task is clear enough, tell Codex:
-
-> I accept this Task. Queue it at the end of READY.
-
-You can also queue it manually from the Web Board. READY means “safe to execute”; queueing does not start implementation by itself.
-
-### 2. Let Paseo consume READY
-
-Open a new Paseo Orchestrator session in the same project and use a short startup instruction:
-
-> Read and execute READY Tasks from the current project's Agent Board, following `agent-board-workflow`. Use the configured Paseo Agent Profiles. Continue until the READY queue is empty or a Human decision is required.
-
-Paseo reads the latest Task state from the Board and uses the Workflow Skill to coordinate Developer and a fresh Independent Verifier. Paseo is not required; any local Orchestrator that can read the Board and follow the Workflow Skill can consume READY.
-
-If you want the normal happy path to include Git integration and cleanup, add explicit authorization for that run:
-
-> When a Task is complete and verified, merge it into main, push origin/main, and clean up the corresponding local worktree and branch after the push succeeds. Stop and report on conflicts or unexpected conditions.
-
-Merge / push authorization is **run-time execution strategy**. It does not belong in the Task and does not change Board semantics.
-
-### 3. Everyday use after that
+Think of Agent Board as a shared task ledger for AI-assisted development:
 
 ```text
-Discuss an idea
-  ↓
-Codex / Claude Code + Management Skill
-  ↓
-unqueued Task
-  ↓ Human accepts
-READY
-  ↓
-Paseo / Orca / another Orchestrator + Workflow Skill
-  ↓
-Developer → Independent Verifier
-  ↓
-DONE
+Codex / Claude Code / OpenCode
+        ↓
+   create and manage Tasks
+        ↓
+     Agent Board
+        ↓
+ Paseo / Orca / another Orchestrator
+        ↓
+ Developer + Independent Verifier
 ```
 
-In normal use, you mostly manage ideas, Tasks, and priority. The execution layer consumes READY and only comes back when a Human decision is actually needed.
+The management side and execution side can use the same harness or completely different ones.
 
-## Core model
+A single Codex setup is enough. With a dedicated Orchestrator such as Paseo or Orca, execution can move further into the background. Independent Tasks can also run in parallel.
 
-A Task has exactly four explicit states:
+## You keep control
 
-- `READY`
-- `IN_PROGRESS`
-- `DONE`
-- `BLOCKED`
+Agent Board does not start development just because a Task exists.
 
-A Task may exist as an unqueued draft. Queue membership is orthogonal metadata, not a fifth lifecycle state.
+- a Task can remain an unqueued draft;
+- READY means you have accepted that it may execute;
+- unclear product semantics, conflicts, and unexpected conditions should come back to a Human;
+- merge / push automation is authorized per run.
 
-The Board records facts such as:
+The point is not to remove the Human from development. It is to remove the Human from **babysitting the middle**.
 
-- Task definition and version
-- READY ordering
-- explicit Task state
-- execution / delivery / verification / handoff facts
-- immutable audit events
+## What you see on the Board
 
-The Board does **not** decide who develops, when a Verifier starts, how RC works, or when DONE is semantically allowed. Those rules belong to Skills.
+The Web Board has four current states:
 
-## Two independent Skills
+- `READY` — safe to execute
+- `IN_PROGRESS` — being worked on
+- `DONE` — completed
+- `BLOCKED` — waiting for resolution
 
-### `agent-board-management`
+Unqueued Tasks are shown separately instead of pretending to be a fifth lifecycle state.
 
-Used for task management: create, edit, accept, queue, reorder, and inspect Tasks. It does not start implementation.
+Each Task exposes its content, execution facts, delivery, verification, and audit history. The home page keeps DONE bounded to recent completions, with full paginated history available separately.
 
-A typical use is to discuss an idea in Codex, Claude Code, or another local harness, let the agent turn the mature idea into a Board Task, and keep it unqueued until a Human accepts readiness.
+## Two Skills, one job each
 
-### `agent-board-workflow`
+`aboard skill install` installs two independent Skills:
 
-Used for execution. It defines the boundaries between Orchestrator, Developer, and Independent Verifier.
+- **`agent-board-management`** — turn ideas into Tasks, edit them, queue them, and manage priority;
+- **`agent-board-workflow`** — tell the execution layer how to coordinate, verify, and deliver work.
 
-Core rules include:
+You do not need to memorize their rules. In Skill-aware harnesses such as Codex or Claude Code, natural-language use is the normal path.
 
-- Developer is the only implementation writer and owns implementation plus self-check;
-- Independent Verifier runs as a fresh, separate, read-only session;
-- after PASS, Orchestrator packages the verified workspace into the accepted commit;
-- the accepted commit must exactly match the PASS baseline / fingerprint;
-- validation is derived from the Task acceptance boundary and plausible impact radius instead of defaulting to unrelated repository-wide checks.
-
-The two Skills are independent and can be installed, checked, or shown separately:
+To inspect them:
 
 ```bash
-aboard skill install
 aboard skill check
 aboard skill show management
 aboard skill show workflow
 ```
 
-Skills are installed into user-level harness discovery paths: Claude Code / OpenCode use `~/.claude/skills`, while Codex uses `~/.agents/skills`. `aboard skill install` also safely handles managed legacy copies left by earlier Agent Board versions.
-
-## A typical workflow
-
-```text
-1. Human discusses work in the preferred harness
-2. Management Skill turns a mature idea into an unqueued Task
-3. Human accepts it and queues it as READY
-4. Orchestrator consumes READY and creates an isolated worktree
-5. Developer implements and self-checks
-6. a fresh Independent Verifier performs read-only verification
-7. after PASS, Orchestrator packages the accepted commit
-8. with Human authorization, merge / push / cleanup may continue
-```
-
-If two READY Tasks are independent and have sufficiently separate change surfaces, different Orchestrators can process them in parallel. The Board does not need extra lifecycle states for parallelism; Git and the Orchestrator own integration.
-
 ## CLI, Web, and MCP
 
-### CLI
+You can use the Web Board directly, or let agents operate the same Board through CLI or MCP.
 
-`aboard` is the baseline interface. Common commands:
+Common commands:
 
 ```bash
 aboard board
@@ -194,27 +173,9 @@ aboard task list
 aboard ready list
 aboard history 12
 aboard doctor
-aboard operations
 ```
 
-CLI operation results are JSON. `aboard call <operation> '<json>'` invokes the same dispatch used by MCP.
-
-### Web Board
-
-`aboard web` provides a local human-facing Board with:
-
-- READY / IN PROGRESS / DONE / BLOCKED columns;
-- unqueued Tasks shown separately;
-- Task details, facts, and audit history;
-- READY reordering;
-- a bounded recent DONE list ordered by the latest transition into DONE;
-- a paginated `/completed/` history.
-
-Only loopback binds are accepted.
-
-### MCP (optional)
-
-MCP is not required to use Agent Board. When structured tool access is useful, a harness can connect to the same Board operations over stdio:
+MCP is optional, not a prerequisite:
 
 ```bash
 aboard mcp config claude-code
@@ -222,9 +183,9 @@ aboard mcp config codex
 aboard mcp config opencode
 ```
 
-`mcp config` only prints configuration; it does not edit harness config files.
+## Local-first
 
-## Local storage
+No account, service deployment, or separate database server is required.
 
 Board data lives at:
 
@@ -232,28 +193,22 @@ Board data lives at:
 ~/.agent-board/<project_id>/board.db
 ```
 
-The repository-level `.agent-board.json` stores only the project identity. Multiple worktrees, CLI processes, Web servers, MCP clients, and agents for the same project therefore share one Board without committing the SQLite database into the repository.
+The repository only needs the `.agent-board.json` project identity file.
 
-## What Agent Board intentionally does not do
+## It does not want to become another giant platform
 
-Agent Board keeps a deliberately narrow boundary. It is not a:
+Agent Board does not own model routing or agent runtime, and it does not require you to replace your IDE, harness, or existing development workflow.
 
-- workflow engine
-- Agent runtime
-- model router
-- cloud collaboration platform
-- replacement for an IDE or harness
+It solves one problem:
 
-It focuses on one composable piece:
+> **give task management and task execution a stable, shared, auditable handoff surface.**
 
-> **a stable, shared, auditable task ledger between task management and task execution.**
+Cloud sync, team services, desktop clients, and remote execution can be added by other pieces later. The core Board does not need to grow into a platform.
 
-Other projects can add remote access, cloud sync, team services, desktop apps, or other surrounding capabilities without turning the core Board into a platform.
-
-## Project docs
+## More docs
 
 - [PRODUCT.md](PRODUCT.md) — product definition and boundaries
-- [ARCHITECTURE.md](ARCHITECTURE.md) — architecture and persistence direction
+- [ARCHITECTURE.md](ARCHITECTURE.md) — architecture and persistence
 - [management/SKILL.md](management/SKILL.md) — Board Management Skill
 - [workflow/SKILL.md](workflow/SKILL.md) — Workflow Skill
 - [AGENTS.md](AGENTS.md) — repository agent instructions
@@ -276,4 +231,4 @@ cd e2e && go test ./...
 
 ## License
 
-Apache-2.0. Third-party code selectively reused from other projects must retain the required attribution and license notices.
+Apache-2.0.
