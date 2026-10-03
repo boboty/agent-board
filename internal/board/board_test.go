@@ -343,8 +343,8 @@ func TestFactsAreRecordedAndNeverChangeState(t *testing.T) {
 	// must record them and leave state alone.
 	facts := []RecordFactInput{
 		{Kind: domain.FactExecution, Body: "developer started", Data: json.RawMessage(`{"harness":"claude-code", "worktree":"../wt-ab1", "model":"opus", "lease_expires_at":"2020-01-01T00:00:00Z"}`)},
-		{Kind: domain.FactDelivery, Body: "delivered", Data: json.RawMessage(`{"commit":"abc123"}`)},
-		{Kind: domain.FactVerification, Body: "RC: missing test", Data: json.RawMessage(`{"result":"RC"}`)},
+		{Kind: domain.FactDelivery, Body: "delivered", Data: json.RawMessage(`{"commit":"abc123"}`), Provenance: &domain.FactProvenance{Role: "worker", Session: "same-session", Harness: "codex", Model: "gpt-6"}},
+		{Kind: domain.FactVerification, Body: "RC: missing test", Data: json.RawMessage(`{"result":"RC"}`), Provenance: &domain.FactProvenance{Role: "verifier", Session: "same-session", Harness: "codex", Model: "gpt-6"}},
 		{Kind: domain.FactVerification, Body: "PASS", Data: json.RawMessage(`{"result":"PASS"}`)},
 		{Kind: domain.FactDecision, Body: "Human accepts without verifier PASS", Data: json.RawMessage(`{"decision":"accept","reason":"accepted by Human"}`)},
 		{Kind: domain.FactHandoff, Body: "handing off to new session"},
@@ -366,6 +366,12 @@ func TestFactsAreRecordedAndNeverChangeState(t *testing.T) {
 	}
 	if string(all[1].Data) != `{"commit":"abc123"}` || all[0].Kind != domain.FactExecution || all[5].Data != nil {
 		t.Fatalf("stored facts = %+v", all)
+	}
+	if all[1].Provenance == nil || all[2].Provenance == nil || all[1].Provenance.Session != all[2].Provenance.Session || all[1].Provenance.Role != "worker" || all[2].Provenance.Role != "verifier" {
+		t.Fatalf("fact provenance was not preserved (same-session facts must remain recordable): %+v", all[1:3])
+	}
+	if all[0].Provenance != nil || all[3].Provenance != nil {
+		t.Fatalf("missing provenance was inferred: %+v", all)
 	}
 	verifications, _ := s.ListFacts(ctx, ListFactsInput{Task: task.ID, Kind: domain.FactVerification})
 	if len(verifications) != 2 {

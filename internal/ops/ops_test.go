@@ -202,8 +202,8 @@ func TestCallRunsEveryOperation(t *testing.T) {
 		{"list_ready", `{}`},
 		{"reorder_ready", `{"expected_version":3,"tasks":["2","1"]}`},
 		{"set_task_state", `{"task":"1","expected_version":3,"state":"BLOCKED","reason":"waiting"}`},
-		{"record_fact", `{"task":"1","kind":"handoff","body":"context","data":{"branch":"x"}}`},
-		{"list_facts", `{"task":"1","kind":"handoff"}`},
+		{"record_fact", `{"task":"1","kind":"delivery","body":"context","data":{"branch":"x"},"provenance":{"role":"worker","session":"ops-session","harness":"codex","model":"gpt-6"}}`},
+		{"list_facts", `{"task":"1","kind":"delivery"}`},
 		{"list_tasks", `{"states":["BLOCKED"],"queued":true}`},
 		{"list_events", `{"task":"1","limit":2}`},
 	}
@@ -218,6 +218,14 @@ func TestCallRunsEveryOperation(t *testing.T) {
 		if !covered[op.Name] {
 			t.Errorf("operation %s not exercised", op.Name)
 		}
+	}
+	facts, err := call(t, s, "list_facts", `{"task":"1","kind":"delivery"}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	listed := facts.(FactsResult).Facts
+	if len(listed) != 1 || listed[0].Provenance == nil || listed[0].Provenance.Role != "worker" || listed[0].Provenance.Session != "ops-session" {
+		t.Fatalf("fact provenance through ops API: %+v", listed)
 	}
 	task, err := call(t, s, "get_task", `{"task":"1"}`)
 	if err != nil {

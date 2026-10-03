@@ -148,22 +148,23 @@ A dash means the role does not use the operation in this workflow. The Board wil
 
 ### Facts
 
-Facts are append-only and never change state. Write the body for a reader who has nothing else, such as a replacement agent or the Human. Put a few machine-readable keys in `data` when they help. The Board stores `data` without interpreting it.
+Facts are append-only and never change state. Write the body for a reader who has nothing else, such as a replacement agent or the Human. Put a few machine-readable keys in `data` when they help. The Board stores `data` without interpreting it. `provenance` is a separate structured field, not part of `data`.
 
 | Kind | Body should say | Useful `data` |
 |---|---|---|
-| `execution` | which role was launched or replaced, and where | `role`, `harness`, `model`, `worktree`, `branch`, `session` |
-| `delivery` | what changed; baseline and fingerprint of the delivered diff; checks run with raw results; what was not verified and why; limitations; known out-of-scope findings. After PASS, the accepted commit and that it holds exactly the verified content | `baseline`, `fingerprint`, `branch`; `accepted_commit` |
-| `verification` | verdict; baseline and fingerprint verified; evidence per acceptance criterion; what was not verified and why; for RC each issue with evidence; for BLOCKED what stops verification | `verdict` (`PASS`/`RC`/`BLOCKED`), `baseline`, `fingerprint` |
+| `execution` | which role was launched or replaced, and where | provenance: `role`, `session`, `harness`, `model`; `worktree`, `branch`, `baseline` in `data` |
+| `delivery` | what changed; baseline and fingerprint of the delivered diff; checks run with raw results; what was not verified and why; limitations; known out-of-scope findings. After PASS, the accepted commit and that it holds exactly the verified content | provenance: `role`, `session`, `harness`, `model`; `baseline`, `fingerprint`, `branch`; `accepted_commit` |
+| `verification` | verdict; baseline and fingerprint verified; evidence per acceptance criterion; what was not verified and why; for RC each issue with evidence; for BLOCKED what stops verification | provenance: `role`, `session`, `harness`, `model`; `verdict` (`PASS`/`RC`/`BLOCKED`), `baseline`, `fingerprint` |
 | `decision` | a Human decision, including explicit acceptance when no Verifier PASS is recorded | `decision` (for example `accept`), `reason` |
-| `handoff` | what is done, what remains, workspace state, what the next person must check first, where the agent activity is | `worktree`, `branch`, `baseline`, `checkpoint` |
+| `handoff` | what is done, what remains, workspace state, what the next person must check first, where the agent activity is | provenance: `role`, `session`, `harness`, `model`; `worktree`, `branch`, `baseline`, `checkpoint` |
 | `note` | a clarification, a reason, or context that is not a Human decision | — |
 
 Record every delivery and every Verifier verdict, including RC verdicts. They are what make takeover and re-verification possible without a progress file.
 
 ### Conventions
 
-- **actor**: start with the role, then a self-reported label that helps trace the session, e.g. `orchestrator/claude-code`, `worker/codex-7f3a`, `verifier/opus-r2`, `human/yan`. It is not authenticated identity.
+- **actor**: a self-reported trace label, for example `orchestrator/codex`, `worker/codex-7f3a`, or `human/yan`. It is not authenticated identity. Keep it for compatibility and human-readable audit history; do not parse it for role or session.
+- **fact provenance**: agent-generated `execution`, `delivery`, `verification`, and `handoff` facts record the available `role`, `session`, `harness`, and `model` as structured provenance. These values are self-reported metadata, not authenticated identity or authorization. Human facts may omit agent provenance or record whichever fields are available. Missing historical provenance stays missing; never infer it from actor, body, or neighboring facts.
 - **expected_version**: use the version you just read. On `VERSION_CONFLICT`, re-read the Task and its recent facts, decide whether your change still makes sense, then retry. Never retry blindly.
 - **idempotency_key**: use one when retrying a mutation whose outcome you could not observe, e.g. `AB-12-done` or `AB-12-verify-r3`. Reuse the same key only for the identical request.
 - **reason** on `set_task_state` is a short human-readable line. It is required in practice for `BLOCKED`; omit it when resuming to clear it. Details belong in a fact.
@@ -206,7 +207,7 @@ Before launching a Verifier, the Orchestrator confirms:
 - no other writer can touch the workspace;
 - the workspace still matches the delivered fingerprint.
 
-The Orchestrator then launches a **new** Independent Verifier with the Task, the baseline and fingerprint, and the workspace. It records an `execution` fact. It passes the Worker's evidence along as material to check, not as a conclusion.
+The Orchestrator then launches a **new** Independent Verifier with the Task, its acceptance criteria, the complete diff from the baseline, and the actual workspace. It records an `execution` fact with the available provenance. The Verifier forms its own verification from those inputs. Worker delivery notes are claims and evidence to check against the workspace, not the preset frame for verification.
 
 The Verifier:
 

@@ -233,6 +233,12 @@
           </label>
           <label>{{$T.FactBody}}<textarea name="body" rows="3" required></textarea></label>
           <label>{{$T.FactDataField}}<textarea name="data" rows="2" class="mono" placeholder="{&quot;commit&quot;: &quot;abc123&quot;}"></textarea></label>
+          <fieldset class="board-fieldset"><legend>{{$T.FactProvenance}}</legend>
+            <label>{{$T.FactProvRole}}<input name="role" type="text"></label>
+            <label>{{$T.FactProvSession}}<input name="session" type="text"></label>
+            <label>{{$T.FactProvHarness}}<input name="harness" type="text"></label>
+            <label>{{$T.FactProvModel}}<input name="model" type="text"></label>
+          </fieldset>
           <p class="board-hint">{{$T.FactsHint}}</p>
           <div class="board-form-actions"><button class="btn btn-primary" type="submit" data-action="record-fact">{{$T.SubmitFact}}</button></div>
         </form>
@@ -264,9 +270,11 @@
 {{end}}
 
 {{define "fact"}}
+{{$T := .T}}
 <div class="fact" data-fact-kind="{{.Fact.Kind}}">
   <div class="fact-head"><span class="fact-kind fact-kind-{{.Fact.Kind}}">{{kindLabel .Fact.Kind}}</span><span class="fact-meta">{{.Fact.Actor}} · {{time .Fact.CreatedAt}}</span></div>
   <div class="prose">{{.Fact.Body}}</div>
+  {{with .Fact.Provenance}}<p class="fact-provenance" data-fact-provenance>{{$T.FactProvenance}} · {{with .Role}}{{$T.FactProvRole}}={{.}} · {{end}}{{with .Session}}{{$T.FactProvSession}}={{.}} · {{end}}{{with .Harness}}{{$T.FactProvHarness}}={{.}} · {{end}}{{with .Model}}{{$T.FactProvModel}}={{.}}{{end}}</p>{{else}}<p class="fact-provenance" data-fact-provenance>{{$T.FactProvMissing}}</p>{{end}}
   {{if .Fact.Data}}<details class="fact-data"><summary>{{.T.FactData}}</summary><pre>{{pretty .Fact.Data}}</pre></details>{{end}}
 </div>
 {{end}}

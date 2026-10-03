@@ -206,10 +206,11 @@ func (s *Service) ReorderReady(ctx context.Context, args ReorderReadyArgs) (doma
 // RecordFactArgs appends a fact.
 type RecordFactArgs struct {
 	Write
-	Task string          `json:"task" jsonschema:"Task ID (ULID) or task number."`
-	Kind domain.FactKind `json:"kind" jsonschema:"Fact kind."`
-	Body string          `json:"body" jsonschema:"Human-readable fact content; must not be blank."`
-	Data json.RawMessage `json:"data,omitempty" jsonschema:"Optional JSON object stored verbatim; the Board does not interpret it."`
+	Task       string                 `json:"task" jsonschema:"Task ID (ULID) or task number."`
+	Kind       domain.FactKind        `json:"kind" jsonschema:"Fact kind."`
+	Body       string                 `json:"body" jsonschema:"Human-readable fact content; must not be blank."`
+	Data       json.RawMessage        `json:"data,omitempty" jsonschema:"Optional JSON object stored verbatim; the Board does not interpret it."`
+	Provenance *domain.FactProvenance `json:"provenance,omitempty" jsonschema:"Optional self-reported role, session, harness, and model; descriptive only, never authenticated or authorized."`
 }
 
 // RecordFact appends an immutable fact. It never changes task state.
@@ -221,6 +222,7 @@ func (s *Service) RecordFact(ctx context.Context, args RecordFactArgs) (FactResu
 		Kind:           args.Kind,
 		Body:           args.Body,
 		Data:           args.Data,
+		Provenance:     args.Provenance,
 	})
 	return FactResult{fact}, err
 }

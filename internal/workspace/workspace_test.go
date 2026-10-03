@@ -10,6 +10,7 @@ import (
 	"github.com/boboty/agent-board/internal/board"
 	"github.com/boboty/agent-board/internal/domain"
 	"github.com/boboty/agent-board/internal/projectconfig"
+	"github.com/boboty/agent-board/migrations"
 )
 
 func testHome(t *testing.T) string {
@@ -70,7 +71,7 @@ func TestInitThenLocateFromNestedDirectory(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !status.DatabaseExists || status.SchemaVersion != 1 || status.ProjectID != created.Identity.ProjectID {
+	if !status.DatabaseExists || status.SchemaVersion != migrations.CurrentVersion() || status.ProjectID != created.Identity.ProjectID {
 		t.Fatalf("status %+v", status)
 	}
 

@@ -78,12 +78,13 @@ type ReorderReadyInput struct {
 // RecordFactInput appends an immutable fact to a task. Data, when present,
 // must be a JSON object; the Board stores it without interpreting it.
 type RecordFactInput struct {
-	Actor          string          `json:"actor"`
-	IdempotencyKey string          `json:"-"`
-	Task           string          `json:"task"`
-	Kind           domain.FactKind `json:"kind"`
-	Body           string          `json:"body"`
-	Data           json.RawMessage `json:"data,omitempty"`
+	Actor          string                 `json:"actor"`
+	IdempotencyKey string                 `json:"-"`
+	Task           string                 `json:"task"`
+	Kind           domain.FactKind        `json:"kind"`
+	Body           string                 `json:"body"`
+	Data           json.RawMessage        `json:"data,omitempty"`
+	Provenance     *domain.FactProvenance `json:"provenance,omitempty"`
 }
 
 // ListFactsInput lists a task's facts in recording order, optionally by kind.
@@ -249,6 +250,15 @@ func (in *RecordFactInput) normalize() error {
 			return domain.Invalid("data", "must be a JSON object")
 		}
 		in.Data = compact.Bytes()
+	}
+	if in.Provenance != nil {
+		in.Provenance.Role = strings.TrimSpace(in.Provenance.Role)
+		in.Provenance.Session = strings.TrimSpace(in.Provenance.Session)
+		in.Provenance.Harness = strings.TrimSpace(in.Provenance.Harness)
+		in.Provenance.Model = strings.TrimSpace(in.Provenance.Model)
+		if in.Provenance.Role == "" && in.Provenance.Session == "" && in.Provenance.Harness == "" && in.Provenance.Model == "" {
+			in.Provenance = nil
+		}
 	}
 	return nil
 }
