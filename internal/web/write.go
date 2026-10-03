@@ -15,8 +15,9 @@ import (
 // The write gate below (synchronizer token, same-origin check, form content
 // type, body limit, POST/redirect/GET with closed-set banner codes) is ported
 // from the served board of boboty/agent-board-rhizome-poc (branch
-// agent-board-v0.1, board_write_http.go). The routes and the operations
-// behind them are Agent Board's own: each one calls exactly one ops method.
+// agent-board-v0.1, board_write_http.go). Modified for Agent Board; the
+// routes and the operations behind them are Agent Board's own: each one calls
+// exactly one ops method.
 
 // writeBodyLimit bounds one form post; the forms are a few text fields.
 const writeBodyLimit = 64 << 10

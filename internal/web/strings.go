@@ -6,8 +6,8 @@ import "github.com/boboty/agent-board/internal/domain"
 // scripts, and Go code in this package take text only from here; the i18n
 // test keeps CJK text out of every other file. The default locale is zh-CN.
 //
-// The structure follows the POC's BoardUIStrings (one struct, one value per
-// locale); the content is Agent Board's own.
+// The structure is derived from the POC's BoardUIStrings (one struct, one
+// value per locale) and modified for Agent Board; the content is Agent Board's own.
 type UIStrings struct {
 	ProductName   string
 	BoardSubtitle string

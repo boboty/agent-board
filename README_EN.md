@@ -170,4 +170,4 @@ Agent Board is not about removing Humans from software development. It is about 
 - [ARCHITECTURE.md](ARCHITECTURE.md) — architecture and persistence
 - [Development from source](docs/development.md)
 
-Apache-2.0
+Apache-2.0. Selected infrastructure code is derived from [rhizome-mcp](https://github.com/Odrin/rhizome-mcp) under Apache-2.0; see [NOTICE](NOTICE).

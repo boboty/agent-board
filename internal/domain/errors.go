@@ -4,7 +4,8 @@ import "errors"
 
 // The structured error type below is derived from rhizome-mcp
 // (https://github.com/Odrin/rhizome-mcp), via boboty/agent-board-rhizome-poc,
-// licensed under Apache-2.0. See NOTICE. The error codes are Agent Board's own.
+// licensed under Apache-2.0. See NOTICE.
+// Modified for Agent Board; the error codes are Agent Board's own.
 
 const (
 	// CodeInvalidArgument identifies invalid caller input.

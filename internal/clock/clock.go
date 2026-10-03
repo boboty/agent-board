@@ -2,6 +2,7 @@
 //
 // Derived from rhizome-mcp (https://github.com/Odrin/rhizome-mcp), via
 // boboty/agent-board-rhizome-poc, licensed under Apache-2.0. See NOTICE.
+// Modified for Agent Board.
 package clock
 
 import (

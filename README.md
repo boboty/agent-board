@@ -174,4 +174,4 @@ Agent Board 不是把人从研发里拿掉，而是把人从**盯过程**里拿�
 - [ARCHITECTURE.md](ARCHITECTURE.md) — 架构与持久化
 - [从源码开发](docs/development.md)
 
-Apache-2.0
+Apache-2.0。部分底层基础设施代码源自 [rhizome-mcp](https://github.com/Odrin/rhizome-mcp)，依据 Apache-2.0 使用与修改，详见 [NOTICE](NOTICE)。
