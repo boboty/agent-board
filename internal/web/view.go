@@ -270,9 +270,9 @@ func loadDetail(ctx context.Context, service *ops.Service, ref string) (detailVi
 	}, nil
 }
 
-// latestByKind picks the most recent execution, delivery, verification, and
-// handoff fact, in that order, for the detail summary. It only selects facts
-// to display; it does not interpret them.
+// latestByKind picks the most recent non-note fact of each kind, in domain
+// order, for the detail summary. It only selects facts to display; it does
+// not interpret them.
 func latestByKind(facts []domain.TaskFact) []domain.TaskFact {
 	var latest []domain.TaskFact
 	for _, kind := range domain.FactKinds {
@@ -297,6 +297,7 @@ func factSummary(fact domain.TaskFact) string {
 		domain.FactExecution:    {"role", "model", "harness"},
 		domain.FactDelivery:     {"accepted_commit", "commit", "files", "file_count"},
 		domain.FactVerification: {"verdict", "round"},
+		domain.FactDecision:     {"decision"},
 		domain.FactHandoff:      {"worktree", "branch"},
 	}
 	var parts []string

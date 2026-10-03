@@ -704,6 +704,7 @@ func TestTaskLifecycleCommands(t *testing.T) {
 	}
 
 	h.ok("fact", "record", "1", "--kind", "handoff", "--body", "context", "--data", `{"branch":"ab-2"}`)
+	h.ok("fact", "record", "1", "--kind", "decision", "--body", "Human accepts without verifier PASS", "--data", `{"decision":"accept"}`)
 	code, _, stderr := h.run("delivery evidence\n", "fact", "record", "1", "--kind", "delivery", "--body-file", "-", "--actor", "developer")
 	if code != ExitOK {
 		t.Fatal(stderr)
@@ -718,7 +719,7 @@ func TestTaskLifecycleCommands(t *testing.T) {
 		Facts  []domain.TaskFact  `json:"facts"`
 		Events []domain.TaskEvent `json:"events"`
 	}](t, h.ok("history", "1"))
-	if len(history.Facts) != 2 || len(history.Events) != 6 || history.Task.Number != 1 {
+	if len(history.Facts) != 3 || len(history.Events) != 7 || history.Task.Number != 1 {
 		t.Fatalf("history %d facts %d events", len(history.Facts), len(history.Events))
 	}
 	page := decodeJSON[ops.EventsResult](t, h.ok("events", "--after", "2", "--limit", "3"))

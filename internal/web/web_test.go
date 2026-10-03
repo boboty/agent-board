@@ -538,8 +538,11 @@ func TestFactsNeverChangeTaskState(t *testing.T) {
 	}
 	drawer := f.get("/?task=1").body
 	if strings.Count(drawer, `class="fact" data-fact-kind=`) != len(domain.FactKinds) ||
-		strings.Count(drawer, `class="key-fact" data-key-fact-kind=`) != 4 {
-		t.Fatalf("drawer should keep all fact records and show four compact latest summaries")
+		strings.Count(drawer, `class="key-fact" data-key-fact-kind=`) != 5 {
+		t.Fatalf("drawer should keep all fact records and show five compact latest summaries")
+	}
+	if !strings.Contains(drawer, `value="decision"`) || !strings.Contains(drawer, "决策") {
+		t.Fatalf("fact form does not expose the decision kind")
 	}
 	// Invalid data is the Board's INVALID_ARGUMENT, reported with its field.
 	form := findForm(t, drawer, "/tasks/1/facts", "record-fact")
@@ -583,6 +586,7 @@ func TestLatestFactsUseCompactSummariesAndKeepFullFacts(t *testing.T) {
 	for _, fact := range []domain.TaskFact{
 		{Kind: domain.FactDelivery, Actor: "developer", Body: longBody, Data: []byte(`{"commit":"bacd250","files":10}`)},
 		{Kind: domain.FactVerification, Actor: "verifier", Body: "PASS · fingerprint unchanged", Data: []byte(`{"verdict":"PASS","round":"r2"}`)},
+		{Kind: domain.FactDecision, Actor: "human", Body: "Accepted without verifier PASS", Data: []byte(`{"decision":"accept","reason":"reviewed in person"}`)},
 	} {
 		if _, err := f.ops.RecordFact(ctx, ops.RecordFactArgs{Write: ops.Write{Actor: fact.Actor}, Task: "1", Kind: fact.Kind,
 			Body: fact.Body, Data: fact.Data}); err != nil {
@@ -600,7 +604,7 @@ func TestLatestFactsUseCompactSummariesAndKeepFullFacts(t *testing.T) {
 	}
 	keyFacts := page.body[keyStart:factsStart]
 	factHistory := page.body[factsStart:]
-	for _, want := range []string{`data-key-fact-kind="delivery"`, "developer", "bacd250", "files 10", `data-key-fact-kind="verification"`, "verifier", "PASS", "fingerprint unchanged"} {
+	for _, want := range []string{`data-key-fact-kind="delivery"`, "developer", "bacd250", "files 10", `data-key-fact-kind="verification"`, "verifier", "PASS", "fingerprint unchanged", `data-key-fact-kind="decision"`, "human", "decision accept"} {
 		if !strings.Contains(keyFacts, want) {
 			t.Errorf("key facts missing %q", want)
 		}

@@ -21,7 +21,7 @@ The Skill constrains **power boundaries, irreversible risk, and acceptance resul
 
 - **Task** (on the Board) defines the work: title, description, acceptance criteria.
 - **Task-level state** (on the Board) says where the Task stands: `READY`, `IN_PROGRESS`, `DONE`, `BLOCKED`.
-- **Facts** (on the Board) carry what happened: execution, delivery, verification, handoff, notes.
+- **Facts** (on the Board) carry what happened: execution, delivery, verification, decision, handoff, notes.
 - **Workspace / Git** holds the delivered work itself.
 - **Agent activity** (transcripts, session logs, the harness's own records) holds the process.
 
@@ -51,7 +51,7 @@ Coordinates one or more Tasks within their current definition.
 - Selects the next Task, checks that it is ready, and starts it.
 - Launches the Worker, continues it, or replaces it.
 - Decides when a delivery is ready for verification and launches a **new** Independent Verifier each time.
-- After PASS, packages the verified workspace as the accepted commit and continues repository integration (see [PASS → DONE](#4-pass--done) and [Closure](#closure)). Commit packaging is a Git delivery operation; it does not write implementation or verify it.
+- After Verifier PASS, packages the verified workspace as the accepted commit and continues repository integration (see [Verifier PASS → DONE](#4-verifier-pass--done) and [Closure](#closure)). Commit packaging is a Git delivery operation; it does not write implementation or verify it.
 - Routes RC back to the Worker.
 - Records Task-level state: start, DONE, BLOCKED, resume.
 - Stops for a Human decision when needed.
@@ -107,16 +107,18 @@ The Board has exactly four states. This Skill uses them as follows:
 | `READY` | Defined, accepted, waiting to start, in priority order | `queue_task` by Human / delegate |
 | `IN_PROGRESS` | Started; development, delivery, verification, RC, correction, and takeover all happen here | Orchestrator, at start or on resume |
 | `BLOCKED` | Cannot continue without input that will not arrive in the current run | Orchestrator (or Human) |
-| `DONE` | An Independent Verifier PASS (or an explicit Human acceptance) is recorded, and the accepted commit holds exactly the verified content | Orchestrator (or Human) |
+| `DONE` | An Independent Verifier PASS is recorded and the accepted commit holds exactly the verified content, or an explicit Human acceptance is recorded as a `decision` fact | Orchestrator (or Human) |
 
 Transitions used by the Skill:
 
 ```text
-(unqueued) ──queue──▶ READY ──start──▶ IN_PROGRESS ──PASS──▶ DONE
+(unqueued) ──queue──▶ READY ──start──▶ IN_PROGRESS ──Verifier PASS──▶ DONE
                                          │    ▲
                                     block│    │resume
                                          ▼    │
                                         BLOCKED
+
+IN_PROGRESS ──Human acceptance (`decision` fact)──▶ DONE
 ```
 
 - RC, verification, review, handoff, takeover, and "waiting for a decision" are **process facts inside a state**, not states. Never invent a fifth state, and never encode one in a reason string.
@@ -137,11 +139,12 @@ Transitions used by the Skill:
 | `set_task_state` | any, as a decision | start, DONE, BLOCKED, resume | — | — |
 | `record_fact` `execution` | — | launches and replacements of roles | — | — |
 | `record_fact` `delivery` | — | accepted commit after PASS; on behalf of a Worker without Board access | each delivery | — |
-| `record_fact` `verification` | own acceptance decision | on behalf of a Verifier without Board access | — | each verdict |
+| `record_fact` `verification` | — | on behalf of a Verifier without Board access | — | each verdict |
+| `record_fact` `decision` | Human decisions, including acceptance | — | — | — |
 | `record_fact` `handoff` | — | when taking over or pausing | when stopping with work unfinished | — |
-| `record_fact` `note` | decisions | decisions, clarifications | as needed | as needed |
+| `record_fact` `note` | — | clarifications, reasons | as needed | as needed |
 
-A dash means the role does not use the operation in this workflow. The Board will not stop it; the role simply does not do it. A Verifier appends a `verification` fact but never changes Task content or state.
+A dash means the role does not use the operation in this workflow. The Board will not stop it; the role simply does not do it. Only an Independent Verifier records a `verification` verdict; a Human records acceptance as a `decision` fact. Neither fact changes Task state.
 
 ### Facts
 
@@ -152,18 +155,19 @@ Facts are append-only and never change state. Write the body for a reader who ha
 | `execution` | which role was launched or replaced, and where | `role`, `harness`, `model`, `worktree`, `branch`, `session` |
 | `delivery` | what changed; baseline and fingerprint of the delivered diff; checks run with raw results; what was not verified and why; limitations; known out-of-scope findings. After PASS, the accepted commit and that it holds exactly the verified content | `baseline`, `fingerprint`, `branch`; `accepted_commit` |
 | `verification` | verdict; baseline and fingerprint verified; evidence per acceptance criterion; what was not verified and why; for RC each issue with evidence; for BLOCKED what stops verification | `verdict` (`PASS`/`RC`/`BLOCKED`), `baseline`, `fingerprint` |
+| `decision` | a Human decision, including explicit acceptance when no Verifier PASS is recorded | `decision` (for example `accept`), `reason` |
 | `handoff` | what is done, what remains, workspace state, what the next person must check first, where the agent activity is | `worktree`, `branch`, `baseline`, `checkpoint` |
-| `note` | a Human decision, a clarification, a reason | — |
+| `note` | a clarification, a reason, or context that is not a Human decision | — |
 
 Record every delivery and every Verifier verdict, including RC verdicts. They are what make takeover and re-verification possible without a progress file.
 
 ### Conventions
 
-- **actor**: start with the role, then something that identifies the session, e.g. `orchestrator/claude-code`, `worker/codex-7f3a`, `verifier/opus-r2`, `human/yan`. It is only an audit label.
+- **actor**: start with the role, then a self-reported label that helps trace the session, e.g. `orchestrator/claude-code`, `worker/codex-7f3a`, `verifier/opus-r2`, `human/yan`. It is not authenticated identity.
 - **expected_version**: use the version you just read. On `VERSION_CONFLICT`, re-read the Task and its recent facts, decide whether your change still makes sense, then retry. Never retry blindly.
 - **idempotency_key**: use one when retrying a mutation whose outcome you could not observe, e.g. `AB-12-done` or `AB-12-verify-r3`. Reuse the same key only for the identical request.
 - **reason** on `set_task_state` is a short human-readable line. It is required in practice for `BLOCKED`; omit it when resuming to clear it. Details belong in a fact.
-- Humans use the same operations through the Web Board or CLI. Its checks and audit are identical.
+- Humans use the same operations through the Web Board or CLI. Input validation is the same in both adapters.
 
 ## Git delivery boundary
 
@@ -216,7 +220,7 @@ The Verifier:
 
 Passing tests do not by themselves mean PASS. Any relevant check that failed or was skipped is named, its impact assessed, and judged against the Task.
 
-### 4. PASS → DONE
+### 4. Verifier PASS → DONE
 
 When a Verifier returns PASS:
 
@@ -227,9 +231,15 @@ When a Verifier returns PASS:
 
 The `verification` fact is the completion evidence; the accepted commit ties it to Git. Packaging the commit does not give the Orchestrator implementation-writing or verification responsibility.
 
-Only an Independent Verifier PASS or an explicit Human acceptance (recorded as a `note` or `verification` fact by the Human) justifies DONE. The Worker's word, a self-review, or the Orchestrator's own reading do not.
+`PASS` is exclusively an Independent Verifier verdict. A Human decision must never be recorded or described as `PASS`.
 
-### 5. RC
+### 5. Human acceptance
+
+A Human may explicitly accept a Task without an Independent Verifier PASS. The Human records that choice as a `decision` fact (for example `decision: accept` with the reason), and the Human or Orchestrator may then record `DONE`. The decision fact is the completion evidence for this path; do not create a `verification` fact for the Human decision. A `decision` fact by itself does not change Task state.
+
+The Worker's word, a self-review, or the Orchestrator's own reading do not justify DONE.
+
+### 6. RC
 
 An RC verdict means the delivery does not meet the Task, but it can be fixed within the current definition.
 
@@ -240,7 +250,7 @@ An RC verdict means the delivery does not meet the Task, but it can be fixed wit
 
 If the rounds stop converging, stop for decision. Signs of this: the same issue keeps returning, the Worker and Verifier disagree about what the criteria require, or a fix would need a definition change. The Orchestrator does not overrule a Verifier, and it does not record DONE over an open RC.
 
-### 6. BLOCKED and resume
+### 7. BLOCKED and resume
 
 A Verifier's `BLOCKED` verdict, or a Worker report that it cannot continue, is input to the Orchestrator. It is not a state change.
 
@@ -250,7 +260,7 @@ The Orchestrator first tries to resolve the issue within the run, for example by
 2. records a `handoff` fact with the confirmed facts, current workspace state, and exactly what is needed;
 3. records `BLOCKED` with a one-line reason naming the blocker or the question.
 
-To resume, once the blocker is resolved and any Human decision is recorded as a `note`, an Orchestrator records `BLOCKED → IN_PROGRESS` (clearing the reason). It continues from the existing workspace and facts as in a takeover. BLOCKED is never a completion verdict.
+To resume, once the blocker is resolved and any Human decision is recorded as a `decision` fact, an Orchestrator records `BLOCKED → IN_PROGRESS` (clearing the reason). It continues from the existing workspace and facts as in a takeover. BLOCKED is never a completion verdict.
 
 ### Stop for decision
 
@@ -264,7 +274,7 @@ Stop the affected work and ask the Human when:
 - the execution backend for the run is unspecified;
 - secrets, security, or legal/licensing concerns appear.
 
-If the Human answers within the run, record the decision as a `note`; if the definition changed, the Human or Orchestrator records it with `update_task`. The Task stays `IN_PROGRESS`. If the answer will not come within the run, record `BLOCKED` as in section 6. There is no separate decision state.
+If the Human answers within the run, record the decision as a `decision` fact; if the definition changed, the Human or Orchestrator records it with `update_task`. The Task stays `IN_PROGRESS` unless the decision explicitly accepts it. If the answer will not come within the run, record `BLOCKED` as in section 7. There is no separate decision state.
 
 ### Interruption and takeover
 
@@ -275,7 +285,7 @@ Continuing does **not** require the same agent instance. A Worker, Verifier, or 
 **Replacing a Worker.** This covers a light interruption, with goal, scope, and workspace still trustworthy. The Orchestrator records an `execution` fact for the new Worker and, when useful, a `handoff` fact. The replacement reads:
 
 - the Task;
-- its facts (`delivery`, `verification`, `handoff`) and events;
+- its facts (`delivery`, `verification`, `decision`, `handoff`) and events;
 - the workspace and Git state: the uncommitted diff against the baseline, and any checkpoint commits;
 - the predecessor's agent activity, where available.
 

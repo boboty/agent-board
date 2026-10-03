@@ -39,17 +39,18 @@ const (
 	FactExecution    FactKind = "execution"
 	FactDelivery     FactKind = "delivery"
 	FactVerification FactKind = "verification"
+	FactDecision     FactKind = "decision"
 	FactHandoff      FactKind = "handoff"
 	FactNote         FactKind = "note"
 )
 
 // FactKinds lists every valid FactKind.
-var FactKinds = []FactKind{FactExecution, FactDelivery, FactVerification, FactHandoff, FactNote}
+var FactKinds = []FactKind{FactExecution, FactDelivery, FactVerification, FactDecision, FactHandoff, FactNote}
 
 // Valid reports whether k is a known fact kind.
 func (k FactKind) Valid() bool {
 	switch k {
-	case FactExecution, FactDelivery, FactVerification, FactHandoff, FactNote:
+	case FactExecution, FactDelivery, FactVerification, FactDecision, FactHandoff, FactNote:
 		return true
 	}
 	return false
@@ -77,7 +78,8 @@ type Task struct {
 }
 
 // TaskFact is an immutable, append-only fact recorded against a task, such as
-// execution metadata, delivery evidence, a verification result, or a handoff.
+// execution metadata, delivery evidence, a verification result, a decision,
+// or a handoff.
 // Facts never change task state.
 type TaskFact struct {
 	ID        string          `json:"id"`

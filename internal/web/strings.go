@@ -146,11 +146,12 @@ var zhCN = UIStrings{
 	NoDescription:      "未填写任务说明",
 	NoAcceptance:       "未填写验收标准",
 
-	KeyFacts: "最新执行 / 交付 / 验证 / 交接",
+	KeyFacts: "最新执行 / 交付 / 验证 / 决策 / 交接",
 	FactKinds: map[domain.FactKind]string{
 		domain.FactExecution:    "执行",
 		domain.FactDelivery:     "交付",
 		domain.FactVerification: "验证",
+		domain.FactDecision:     "决策",
 		domain.FactHandoff:      "交接",
 		domain.FactNote:         "备注",
 	},
@@ -158,8 +159,8 @@ var zhCN = UIStrings{
 	FactsHint: "事实只追加记录，不会改变任务状态。",
 	NoFacts:   "暂无事实记录",
 	FactData:  "结构化数据",
-	Events:    "审计历史",
-	NoEvents:  "暂无审计事件",
+	Events:    "事件历史",
+	NoEvents:  "暂无事件记录",
 	EventTypes: map[domain.EventType]string{
 		domain.EventTaskCreated:    "创建任务",
 		domain.EventTaskUpdated:    "编辑任务",

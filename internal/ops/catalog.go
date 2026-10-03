@@ -43,7 +43,7 @@ var catalog = []Operation{
 	define("reorder_ready", false, (*Service).ReorderReady,
 		"Atomically replace the READY ordering. Requires the READY queue version and exactly the current READY tasks."),
 	define("record_fact", false, (*Service).RecordFact,
-		"Append an immutable fact (execution, delivery, verification, handoff, note) to a task. Facts never change task state."),
+		"Append an immutable fact (execution, delivery, verification, decision, handoff, note) to a task. Facts never change task state."),
 	define("list_facts", true, (*Service).ListFacts,
 		"List a task's facts in recording order, optionally by kind."),
 	define("list_events", true, (*Service).ListEvents,

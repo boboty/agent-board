@@ -94,6 +94,10 @@ func TestInputSchemas(t *testing.T) {
 	if typ := schemas["record_fact"].InputSchema.Properties["data"].Type; typ != "object" {
 		t.Errorf("record_fact data type %q", typ)
 	}
+	kinds := schemas["record_fact"].InputSchema.Properties["kind"].Enum
+	if len(kinds) != len(domain.FactKinds) || !slices.Contains(kinds, any(string(domain.FactDecision))) {
+		t.Errorf("record_fact kind enum %v", kinds)
+	}
 }
 
 func TestCallRejectsMalformedArguments(t *testing.T) {

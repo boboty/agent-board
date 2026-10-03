@@ -131,8 +131,9 @@ func TestToolCallsReachTheBoard(t *testing.T) {
 		t.Fatalf("started %+v", started)
 	}
 	callTool(t, session, "record_fact", map[string]any{"task": "1", "kind": "delivery", "body": "done", "data": map[string]any{"commit": "abc"}})
+	callTool(t, session, "record_fact", map[string]any{"task": "1", "kind": "decision", "body": "Human accepts without verifier PASS", "data": map[string]any{"decision": "accept"}})
 	facts := decode[ops.FactsResult](t, callTool(t, session, "list_facts", map[string]any{"task": "1"})).Facts
-	if len(facts) != 1 || string(facts[0].Data) != `{"commit":"abc"}` {
+	if len(facts) != 2 || string(facts[0].Data) != `{"commit":"abc"}` || facts[1].Kind != domain.FactDecision {
 		t.Fatalf("facts %+v", facts)
 	}
 	// Recording a fact changes nothing about the task.
@@ -145,7 +146,7 @@ func TestToolCallsReachTheBoard(t *testing.T) {
 	for _, event := range events {
 		actors = append(actors, event.Actor)
 	}
-	if !slices.Equal(actors, []string{"mcp-default", "mcp-default", "orchestrator", "mcp-default"}) {
+	if !slices.Equal(actors, []string{"mcp-default", "mcp-default", "orchestrator", "mcp-default", "mcp-default"}) {
 		t.Fatalf("actors %v", actors)
 	}
 }

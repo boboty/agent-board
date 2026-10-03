@@ -346,6 +346,7 @@ func TestFactsAreRecordedAndNeverChangeState(t *testing.T) {
 		{Kind: domain.FactDelivery, Body: "delivered", Data: json.RawMessage(`{"commit":"abc123"}`)},
 		{Kind: domain.FactVerification, Body: "RC: missing test", Data: json.RawMessage(`{"result":"RC"}`)},
 		{Kind: domain.FactVerification, Body: "PASS", Data: json.RawMessage(`{"result":"PASS"}`)},
+		{Kind: domain.FactDecision, Body: "Human accepts without verifier PASS", Data: json.RawMessage(`{"decision":"accept","reason":"accepted by Human"}`)},
 		{Kind: domain.FactHandoff, Body: "handing off to new session"},
 		{Kind: domain.FactNote, Body: "blocked? no, just a note mentioning BLOCKED and DONE"},
 	}
@@ -363,12 +364,16 @@ func TestFactsAreRecordedAndNeverChangeState(t *testing.T) {
 	if err != nil || len(all) != len(facts) {
 		t.Fatalf("facts = %d, %v", len(all), err)
 	}
-	if string(all[1].Data) != `{"commit":"abc123"}` || all[0].Kind != domain.FactExecution || all[4].Data != nil {
+	if string(all[1].Data) != `{"commit":"abc123"}` || all[0].Kind != domain.FactExecution || all[5].Data != nil {
 		t.Fatalf("stored facts = %+v", all)
 	}
 	verifications, _ := s.ListFacts(ctx, ListFactsInput{Task: task.ID, Kind: domain.FactVerification})
 	if len(verifications) != 2 {
 		t.Fatalf("verification facts = %d", len(verifications))
+	}
+	decisions, err := s.ListFacts(ctx, ListFactsInput{Task: task.ID, Kind: domain.FactDecision})
+	if err != nil || len(decisions) != 1 || decisions[0].Kind != domain.FactDecision {
+		t.Fatalf("decision facts = %+v, %v", decisions, err)
 	}
 
 	for name, in := range map[string]RecordFactInput{

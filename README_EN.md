@@ -27,7 +27,7 @@ Better models do not make these questions disappear. They are problems of **coor
 
 **The core discipline itself is not specific to software development, but software engineering is the first domain it has been designed and validated against in real projects.** Other domains may need different evidence and verification rules; those should be proven separately rather than assumed here.
 
-Human engineering teams use tickets, review, sign-off, and audit trails for the same reason. Agent teams need a written discipline that agents themselves can follow.
+Human engineering teams use tickets, review, and sign-off records for the same reason. Agent teams need a written discipline that agents themselves can follow.
 
 ## The rules
 
@@ -44,7 +44,7 @@ The Human keeps authority over product intent, READY priority, and outward or ir
 
 ## Reference implementation: `aboard`
 
-Agent Board turns those rules into an external, persistent, auditable task ledger.
+Agent Board turns those rules into an external, persistent, traceable task ledger. Actor identity is a label supplied by the writer; it is not authenticated.
 
 **The board is only a view. The real core is: rules + work ledger + evidence and verdicts.**
 
@@ -52,13 +52,13 @@ Agent Board turns those rules into an external, persistent, auditable task ledge
 
 - **External source of truth**: task state does not live only in one agent's context, todo list, or progress file
 - **Independent verification**: a Worker delivers; a fresh Independent Verifier checks it
-- **Reviewable evidence**: delivery / verification / handoff / decision history remains inspectable
+- **Traceable records**: delivery / verification / handoff / decision history remains inspectable
 - **Harness-independent**: CLI / MCP / Web operate the same facts without binding to Claude Code, Codex, OpenCode, or a particular model
 - **Local-first**: one binary + SQLite, with no account, hosted service, or database server required
 
 The Task lifecycle stays deliberately small: `READY` / `IN_PROGRESS` / `DONE` / `BLOCKED`.
 
-Worker, Verifier, RC, handoff, and session are not additional top-level states. They are execution and audit facts around the Task.
+Worker, Verifier, RC, handoff, and session are not additional top-level states. They are execution and decision records around the Task.
 
 ## What it isn't
 
@@ -89,10 +89,11 @@ The Worker manages its own internal plan, then leaves a stable workspace, delive
 A **fresh, independent session/instance** verifies the Task against the full diff and its acceptance criteria instead of letting the Worker declare its own success.
 
 - PASS → accept the verified delivery → package the accepted commit → DONE
+- Human acceptance → record a `decision` fact (never as PASS) → DONE
 - RC → return to the Worker → create a new delivery → verify again with a new Independent Verifier
 - BLOCKED / Human decision required → stop and record the reason
 
-![Task detail: delivery, independent verification, and audit history](docs/images/task-detail.webp)
+![Task detail: delivery, independent verification, and fact history](docs/images/task-detail.webp)
 
 What you come back to is not “the agent says it is done,” but:
 
@@ -122,10 +123,10 @@ If your team can eventually carry the same rules entirely through GitHub or anot
 | | TODO.md / PROGRESS.md | Agent built-in todo | Issues / Linear | **Agent Board** |
 |---|---|---|---|---|
 | Shared across sessions / worktrees | Needs conventions; easy to fork | Usually scoped to one session or harness | ✓ | ✓ |
-| Source of task state | File contents | Harness / session internal state | Explicit fields or automation | Explicit records with actor + version |
+| Source of task state | File contents | Harness / session internal state | Explicit fields or automation | Explicit records with supplied actor label + version |
 | Evidence behind “done” | You define it yourself | Usually no independent verification trail | Depends on comments / CI / Review | Delivery + independent verification facts |
 | Direct agent access | Yes, but concurrent edits can conflict | Usually current harness only | Requires API / auth | CLI / MCP with optimistic versioning |
-| Handoff during local execution | Manual convention | Usually not cross-harness | Usually centered on remote Issue / PR | Native handoff / audit facts |
+| Handoff during local execution | Manual convention | Usually not cross-harness | Usually centered on remote Issue / PR | Native handoff / decision records |
 | Deployment | None | None | Account / network / service | Local binary + SQLite |
 
 ## Start in 5 minutes

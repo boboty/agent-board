@@ -38,7 +38,7 @@ aboard history 12
 aboard events --task 12
 ```
 
-CLI mutations require an actor audit label:
+CLI mutations require a writer-supplied actor label for traceability; it is not authenticated identity:
 
 ```bash
 export AGENT_BOARD_ACTOR=human
@@ -62,7 +62,7 @@ A Task enters READY only when the Human, or an explicit delegate, accepts it for
 aboard web
 ```
 
-The Web Board chooses an available loopback port. It is the Human-facing UI for browsing, editing, queueing, READY ordering, Facts, and audit history.
+The Web Board chooses an available loopback port. It is the Human-facing UI for browsing, editing, queueing, READY ordering, Facts, and history.
 
 ## MCP
 

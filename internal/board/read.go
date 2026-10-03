@@ -84,7 +84,7 @@ func (s *Service) ListFacts(ctx context.Context, in ListFactsInput) ([]domain.Ta
 		return nil, err
 	}
 	if in.Kind != "" && !in.Kind.Valid() {
-		return nil, domain.Invalid("kind", "must be one of execution, delivery, verification, handoff, note")
+		return nil, domain.Invalid("kind", "must be one of execution, delivery, verification, decision, handoff, note")
 	}
 	facts := []domain.TaskFact{}
 	err = s.db.Read(ctx, func(ctx context.Context, q sqlite.Queryer) error {

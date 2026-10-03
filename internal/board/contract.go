@@ -234,7 +234,7 @@ func (in *RecordFactInput) normalize() error {
 	}
 	in.Task = ref
 	if !in.Kind.Valid() {
-		return domain.Invalid("kind", "must be one of execution, delivery, verification, handoff, note")
+		return domain.Invalid("kind", "must be one of execution, delivery, verification, decision, handoff, note")
 	}
 	if strings.TrimSpace(in.Body) == "" {
 		return domain.Invalid("body", "must not be empty")

@@ -38,7 +38,7 @@ aboard history 12
 aboard events --task 12
 ```
 
-CLI 写操作需要 actor 审计标签：
+CLI 写操作需要由写入方提供 actor 记录标签；该标签用于追溯操作来源，不代表身份认证：
 
 ```bash
 export AGENT_BOARD_ACTOR=human
@@ -62,7 +62,7 @@ Task 是否进入 READY，由 Human 或其明确委托者决定。
 aboard web
 ```
 
-Web Board 在 loopback 地址上选择可用端口。它适合 Human 浏览、编辑、入队、调整 READY 顺序、查看 Facts 与审计历史。
+Web Board 在 loopback 地址上选择可用端口。它适合 Human 浏览、编辑、入队、调整 READY 顺序、查看 Facts 与历史记录。
 
 ## MCP
 
