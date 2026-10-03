@@ -89,7 +89,7 @@ READY:
   ready reorder --version N REF...
 
 Facts and history:
-  fact record REF --kind K (--body B | --body-file PATH|-) [--data JSON]
+  fact record REF --kind K (--body B | --body-file PATH|-) [--data JSON] [--role R --session S --harness H --model M]
   fact list REF [--kind K]
   history REF                  facts and audit events of one task
   events [--task REF] [--after ID] [--limit N]
@@ -1398,6 +1398,10 @@ func runFactRecord(ctx context.Context, args []string, env Env) error {
 	body := c.flags.String("body", "", "fact body")
 	bodyFile := c.flags.String("body-file", "", "read the fact body from a file (- for stdin)")
 	data := c.flags.String("data", "", "JSON object stored with the fact")
+	role := c.flags.String("role", "", "self-reported provenance role")
+	session := c.flags.String("session", "", "self-reported provenance session")
+	harness := c.flags.String("harness", "", "self-reported provenance harness")
+	model := c.flags.String("model", "", "self-reported provenance model")
 	positional, err := c.parse(args, 1, 1)
 	if err != nil {
 		return err
@@ -1415,6 +1419,9 @@ func runFactRecord(ctx context.Context, args []string, env Env) error {
 	in := ops.RecordFactArgs{Write: c.write(), Task: positional[0], Kind: domain.FactKind(*kind), Body: *body}
 	if c.set("data") {
 		in.Data = json.RawMessage(*data)
+	}
+	if c.set("role") || c.set("session") || c.set("harness") || c.set("model") {
+		in.Provenance = &domain.FactProvenance{Role: *role, Session: *session, Harness: *harness, Model: *model}
 	}
 	return do(ctx, c, func(s *ops.Service) (ops.FactResult, error) { return s.RecordFact(ctx, in) })
 }

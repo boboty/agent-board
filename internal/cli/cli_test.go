@@ -705,12 +705,12 @@ func TestTaskLifecycleCommands(t *testing.T) {
 
 	h.ok("fact", "record", "1", "--kind", "handoff", "--body", "context", "--data", `{"branch":"ab-2"}`)
 	h.ok("fact", "record", "1", "--kind", "decision", "--body", "Human accepts without verifier PASS", "--data", `{"decision":"accept"}`)
-	code, _, stderr := h.run("delivery evidence\n", "fact", "record", "1", "--kind", "delivery", "--body-file", "-", "--actor", "developer")
+	code, _, stderr := h.run("delivery evidence\n", "fact", "record", "1", "--kind", "delivery", "--body-file", "-", "--actor", "developer", "--role", "worker", "--session", "cli-session", "--harness", "codex", "--model", "gpt-6")
 	if code != ExitOK {
 		t.Fatal(stderr)
 	}
 	facts := decodeJSON[ops.FactsResult](t, h.ok("fact", "list", "1", "--kind", "delivery")).Facts
-	if len(facts) != 1 || facts[0].Body != "delivery evidence\n" || facts[0].Actor != "developer" {
+	if len(facts) != 1 || facts[0].Body != "delivery evidence\n" || facts[0].Actor != "developer" || facts[0].Provenance == nil || facts[0].Provenance.Session != "cli-session" || facts[0].Provenance.Harness != "codex" {
 		t.Fatalf("facts %+v", facts)
 	}
 

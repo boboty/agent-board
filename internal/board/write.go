@@ -299,10 +299,14 @@ func (s *Service) RecordFact(ctx context.Context, in RecordFactInput) (domain.Ta
 		if err != nil {
 			return domain.TaskFact{}, err
 		}
-		fact := domain.TaskFact{ID: id, TaskID: taskID, Kind: in.Kind, Body: in.Body, Data: in.Data, Actor: in.Actor, CreatedAt: now}
-		if _, err := tx.ExecContext(ctx, `INSERT INTO task_facts(id, task_id, kind, body, data, actor, created_at)
-			VALUES (?, ?, ?, ?, ?, ?, ?)`, fact.ID, fact.TaskID, fact.Kind, fact.Body, nullableJSON(fact.Data),
-			fact.Actor, sqlite.FormatTime(now)); err != nil {
+		fact := domain.TaskFact{ID: id, TaskID: taskID, Kind: in.Kind, Body: in.Body, Data: in.Data, Provenance: in.Provenance, Actor: in.Actor, CreatedAt: now}
+		var role, session, harness, model any
+		if in.Provenance != nil {
+			role, session, harness, model = in.Provenance.Role, in.Provenance.Session, in.Provenance.Harness, in.Provenance.Model
+		}
+		if _, err := tx.ExecContext(ctx, `INSERT INTO task_facts(id, task_id, kind, body, data, actor, provenance_role, provenance_session, provenance_harness, provenance_model, created_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, fact.ID, fact.TaskID, fact.Kind, fact.Body, nullableJSON(fact.Data),
+			fact.Actor, role, session, harness, model, sqlite.FormatTime(now)); err != nil {
 			return domain.TaskFact{}, err
 		}
 		if err := appendEvent(ctx, tx, &task, domain.EventFactRecorded, in.Actor,

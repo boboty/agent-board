@@ -92,7 +92,7 @@ func (s *Service) ListFacts(ctx context.Context, in ListFactsInput) ([]domain.Ta
 		if err != nil {
 			return err
 		}
-		rows, err := q.QueryContext(ctx, `SELECT id, task_id, kind, body, data, actor, created_at FROM task_facts
+		rows, err := q.QueryContext(ctx, `SELECT id, task_id, kind, body, data, actor, provenance_role, provenance_session, provenance_harness, provenance_model, created_at FROM task_facts
 			WHERE task_id = ? AND (? = '' OR kind = ?) ORDER BY created_at, id`, id, in.Kind, in.Kind)
 		if err != nil {
 			return err
@@ -101,12 +101,16 @@ func (s *Service) ListFacts(ctx context.Context, in ListFactsInput) ([]domain.Ta
 		for rows.Next() {
 			var fact domain.TaskFact
 			var data sql.NullString
+			var role, session, harness, model sql.NullString
 			var createdAt string
-			if err := rows.Scan(&fact.ID, &fact.TaskID, &fact.Kind, &fact.Body, &data, &fact.Actor, &createdAt); err != nil {
+			if err := rows.Scan(&fact.ID, &fact.TaskID, &fact.Kind, &fact.Body, &data, &fact.Actor, &role, &session, &harness, &model, &createdAt); err != nil {
 				return err
 			}
 			if data.Valid {
 				fact.Data = json.RawMessage(data.String)
+			}
+			if role.Valid || session.Valid || harness.Valid || model.Valid {
+				fact.Provenance = &domain.FactProvenance{Role: role.String, Session: session.String, Harness: harness.String, Model: model.String}
 			}
 			if fact.CreatedAt, err = sqlite.ParseTime(createdAt); err != nil {
 				return corrupt(err)

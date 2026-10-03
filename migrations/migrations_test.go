@@ -50,6 +50,41 @@ func TestMigrateIsIdempotent(t *testing.T) {
 	}
 }
 
+func TestFactProvenanceMigrationKeepsLegacyFactsWithoutInference(t *testing.T) {
+	path, db := openDB(t)
+	if result, err := run(context.Background(), db, clock.NewFakeClock(migrationTime), embeddedCatalog[:1]); err != nil || result.Version != 1 {
+		t.Fatalf("initial migration = %+v, %v", result, err)
+	}
+	inspect, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer inspect.Close()
+	const created = "2026-10-01T12:00:00Z"
+	if _, err := inspect.Exec(`INSERT INTO board(singleton, project_id, ready_version, created_at) VALUES (1, ?, 1, ?)`, "01234567890123456789012345", created); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := inspect.Exec(`INSERT INTO tasks(id, number, title, description, acceptance_criteria, state, state_reason, queued_at, ready_rank, version, created_at, updated_at)
+		VALUES (?, 1, 'legacy', '', '', NULL, NULL, NULL, NULL, 1, ?, ?)`, "01234567890123456789012346", created, created); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := inspect.Exec(`INSERT INTO task_facts(id, task_id, kind, body, data, actor, created_at)
+		VALUES (?, ?, 'execution', 'worker/codex session=old', '{"session":"legacy-data"}', 'worker/codex', ?)`, "01234567890123456789012347", "01234567890123456789012346", created); err != nil {
+		t.Fatal(err)
+	}
+	if result, err := Migrate(context.Background(), db, clock.NewFakeClock(migrationTime)); err != nil || result.Version != 2 || result.Applied != 1 {
+		t.Fatalf("provenance migration = %+v, %v", result, err)
+	}
+	var kind, body, actor string
+	var data, role, session, harness, model sql.NullString
+	if err := inspect.QueryRow(`SELECT kind, body, data, actor, provenance_role, provenance_session, provenance_harness, provenance_model FROM task_facts WHERE id = ?`, "01234567890123456789012347").Scan(&kind, &body, &data, &actor, &role, &session, &harness, &model); err != nil {
+		t.Fatal(err)
+	}
+	if kind != "execution" || body != "worker/codex session=old" || actor != "worker/codex" || !data.Valid || role.Valid || session.Valid || harness.Valid || model.Valid {
+		t.Fatalf("legacy fact changed or provenance inferred: kind=%q body=%q actor=%q data=%v provenance=%v/%v/%v/%v", kind, body, actor, data, role, session, harness, model)
+	}
+}
+
 func TestConcurrentRunnersHaveOneMigrationOwner(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "board.db")
 	const runners = 4

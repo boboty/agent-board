@@ -82,13 +82,23 @@ type Task struct {
 // or a handoff.
 // Facts never change task state.
 type TaskFact struct {
-	ID        string          `json:"id"`
-	TaskID    string          `json:"task_id"`
-	Kind      FactKind        `json:"kind"`
-	Body      string          `json:"body"`
-	Data      json.RawMessage `json:"data,omitempty"`
-	Actor     string          `json:"actor"`
-	CreatedAt time.Time       `json:"created_at"`
+	ID         string          `json:"id"`
+	TaskID     string          `json:"task_id"`
+	Kind       FactKind        `json:"kind"`
+	Body       string          `json:"body"`
+	Data       json.RawMessage `json:"data,omitempty"`
+	Provenance *FactProvenance `json:"provenance"`
+	Actor      string          `json:"actor"`
+	CreatedAt  time.Time       `json:"created_at"`
+}
+
+// FactProvenance records optional, self-reported execution context. It is
+// descriptive metadata only and is never used to authenticate or authorize.
+type FactProvenance struct {
+	Role    string `json:"role,omitempty"`
+	Session string `json:"session,omitempty"`
+	Harness string `json:"harness,omitempty"`
+	Model   string `json:"model,omitempty"`
 }
 
 // EventType names an audit event.

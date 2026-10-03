@@ -209,6 +209,10 @@ func (h *handler) recordFact(r *http.Request) (url.Values, error) {
 		Task:  r.PathValue("ref"),
 		Kind:  domain.FactKind(r.PostForm.Get("kind")),
 		Body:  text(r, "body"),
+		Provenance: &domain.FactProvenance{
+			Role: r.PostForm.Get("role"), Session: r.PostForm.Get("session"),
+			Harness: r.PostForm.Get("harness"), Model: r.PostForm.Get("model"),
+		},
 	}
 	if data := optionalText(r, "data"); data != nil {
 		args.Data = []byte(*data)

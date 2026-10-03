@@ -525,6 +525,10 @@ func TestFactsNeverChangeTaskState(t *testing.T) {
 		form.values.Set("kind", string(kind))
 		form.values.Set("body", "fact "+string(kind)+" PASS DONE")
 		form.values.Set("data", `{"verdict": "PASS", "state": "DONE"}`)
+		form.values.Set("role", "worker")
+		form.values.Set("session", "web-session")
+		form.values.Set("harness", "codex")
+		form.values.Set("model", "gpt-6")
 		if query := f.post(form.action, form.values).redirect(t); query.Get("notice") != "fact" || query.Get("task") != "1" {
 			t.Fatalf("record %s: %v", kind, query)
 		}
@@ -543,6 +547,9 @@ func TestFactsNeverChangeTaskState(t *testing.T) {
 	}
 	if !strings.Contains(drawer, `value="decision"`) || !strings.Contains(drawer, "决策") {
 		t.Fatalf("fact form does not expose the decision kind")
+	}
+	if !strings.Contains(drawer, "会话=web-session") || !strings.Contains(drawer, "角色=worker") || !strings.Contains(drawer, "Harness=codex") || !strings.Contains(drawer, "模型=gpt-6") {
+		t.Fatalf("fact history does not expose structured provenance")
 	}
 	// Invalid data is the Board's INVALID_ARGUMENT, reported with its field.
 	form := findForm(t, drawer, "/tasks/1/facts", "record-fact")
@@ -584,12 +591,12 @@ func TestLatestFactsUseCompactSummariesAndKeepFullFacts(t *testing.T) {
 	ctx := context.Background()
 	longBody := strings.Repeat("Delivery detail remains in the fact history. ", 8) + "full-body-tail-marker"
 	for _, fact := range []domain.TaskFact{
-		{Kind: domain.FactDelivery, Actor: "developer", Body: longBody, Data: []byte(`{"commit":"bacd250","files":10}`)},
+		{Kind: domain.FactDelivery, Actor: "developer", Body: longBody, Data: []byte(`{"commit":"bacd250","files":10}`), Provenance: &domain.FactProvenance{Role: "worker", Session: "delivery-session", Harness: "codex", Model: "gpt-6"}},
 		{Kind: domain.FactVerification, Actor: "verifier", Body: "PASS · fingerprint unchanged", Data: []byte(`{"verdict":"PASS","round":"r2"}`)},
 		{Kind: domain.FactDecision, Actor: "human", Body: "Accepted without verifier PASS", Data: []byte(`{"decision":"accept","reason":"reviewed in person"}`)},
 	} {
 		if _, err := f.ops.RecordFact(ctx, ops.RecordFactArgs{Write: ops.Write{Actor: fact.Actor}, Task: "1", Kind: fact.Kind,
-			Body: fact.Body, Data: fact.Data}); err != nil {
+			Body: fact.Body, Data: fact.Data, Provenance: fact.Provenance}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -612,8 +619,10 @@ func TestLatestFactsUseCompactSummariesAndKeepFullFacts(t *testing.T) {
 	if strings.Contains(keyFacts, "full-body-tail-marker") {
 		t.Fatal("key fact summary contains the full long body")
 	}
-	if !strings.Contains(factHistory, longBody) || !strings.Contains(factHistory, "PASS · fingerprint unchanged") {
-		t.Fatal("full fact history did not retain the complete bodies")
+	for _, want := range []string{longBody, "PASS · fingerprint unchanged", "delivery-session", "未记录来源信息"} {
+		if !strings.Contains(factHistory, want) {
+			t.Errorf("full fact history missing %q", want)
+		}
 	}
 	if !strings.Contains(page.body, `data-event="fact_recorded"`) {
 		t.Fatal("fact audit history is missing")

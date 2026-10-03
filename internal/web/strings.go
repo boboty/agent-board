@@ -68,22 +68,28 @@ type UIStrings struct {
 	EventVer    string
 	EventDetail string
 
-	NewTaskHeading string
-	FieldTitle     string
-	CreateTask     string
-	Cancel         string
-	EditTask       string
-	SaveChanges    string
-	SetState       string
-	TargetState    string
-	Reason         string
-	RecordState    string
-	StateHint      string
-	RecordFact     string
-	FactKind       string
-	FactBody       string
-	FactDataField  string
-	SubmitFact     string
+	NewTaskHeading  string
+	FieldTitle      string
+	CreateTask      string
+	Cancel          string
+	EditTask        string
+	SaveChanges     string
+	SetState        string
+	TargetState     string
+	Reason          string
+	RecordState     string
+	StateHint       string
+	RecordFact      string
+	FactKind        string
+	FactBody        string
+	FactDataField   string
+	FactProvenance  string
+	FactProvRole    string
+	FactProvSession string
+	FactProvHarness string
+	FactProvModel   string
+	FactProvMissing string
+	SubmitFact      string
 
 	Notices      map[string]string
 	Errors       map[string]string
@@ -176,22 +182,28 @@ var zhCN = UIStrings{
 	EventVer:    "版本",
 	EventDetail: "内容",
 
-	NewTaskHeading: "新建任务",
-	FieldTitle:     "标题",
-	CreateTask:     "创建任务",
-	Cancel:         "取消",
-	EditTask:       "编辑任务",
-	SaveChanges:    "保存修改",
-	SetState:       "修改状态",
-	TargetState:    "目标状态",
-	Reason:         "原因（可选，例如阻塞原因）",
-	RecordState:    "记录状态",
-	StateHint:      "看板如实记录所选状态，不做流转校验；何时修改由工作流 Skill 决定。",
-	RecordFact:     "记录事实",
-	FactKind:       "类型",
-	FactBody:       "内容",
-	FactDataField:  "结构化数据（可选，JSON 对象）",
-	SubmitFact:     "记录",
+	NewTaskHeading:  "新建任务",
+	FieldTitle:      "标题",
+	CreateTask:      "创建任务",
+	Cancel:          "取消",
+	EditTask:        "编辑任务",
+	SaveChanges:     "保存修改",
+	SetState:        "修改状态",
+	TargetState:     "目标状态",
+	Reason:          "原因（可选，例如阻塞原因）",
+	RecordState:     "记录状态",
+	StateHint:       "看板如实记录所选状态，不做流转校验；何时修改由工作流 Skill 决定。",
+	RecordFact:      "记录事实",
+	FactKind:        "类型",
+	FactBody:        "内容",
+	FactDataField:   "结构化数据（可选，JSON 对象）",
+	FactProvenance:  "来源信息",
+	FactProvRole:    "角色",
+	FactProvSession: "会话",
+	FactProvHarness: "Harness",
+	FactProvModel:   "模型",
+	FactProvMissing: "未记录来源信息",
+	SubmitFact:      "记录",
 
 	Notices: map[string]string{
 		"created":   "任务已创建。新任务尚未入队。",
