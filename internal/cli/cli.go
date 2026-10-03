@@ -105,7 +105,6 @@ Common flags:
 
 REF is a task ID or number (12 or #12). Output is JSON.
 doctor prints human-readable component status; exit 0 means no problems were found by its read-only checks, 1 means a component needs attention, and 2 means invalid usage. It checks that the Board file exists and has a recognizable SQLite format; it does not connect to the database. MCP status reports that operation definitions are loaded; it does not start an MCP service.
-aboard doctor --fix [--name NAME] explicitly migrates a repository-tracked .agent-board.json whose Board data exists on this machine to the local Git identity, keeping its project_id; a legacy file without local Board data is a fresh clone and needs aboard init; ordinary aboard doctor is read-only.
 `
 
 type usageError struct{ message string }
@@ -265,9 +264,6 @@ func runClean(args []string, env Env) error {
 		return domain.WrapError(err, "PROJECT_CLEAN_FAILED", "Board data was removed, but cannot remove project identity "+identityPath, false)
 	}
 	fmt.Fprintln(env.Stdout, "Project Agent Board data and identity removed.")
-	if project.LegacyPath != "" {
-		fmt.Fprintf(env.Stdout, "Repository-tracked %s was kept; remove it with `git rm` if it is no longer wanted.\n", project.LegacyPath)
-	}
 	return nil
 }
 
@@ -945,13 +941,8 @@ func plural(count int, singular, plural string) string {
 
 func runDoctor(ctx context.Context, args []string, env Env) error {
 	c := newCommand("doctor", env)
-	fix := c.flags.Bool("fix", false, "explicitly migrate version 1 project identity to version 2")
-	name := c.flags.String("name", "", "project name to use during identity migration")
 	if _, err := c.parse(args, 0, 0); err != nil {
 		return err
-	}
-	if c.set("name") && !*fix {
-		return usagef("doctor: --name requires --fix")
 	}
 	lines := make([]doctorLine, 0, 5)
 	healthy := true
@@ -1055,22 +1046,7 @@ func runDoctor(ctx context.Context, args []string, env Env) error {
 		lines = append(lines, doctorLine{"Skills", status, strings.Join(skillDetails, "; "), next})
 	}
 
-	// An unresolvable data root surfaces here as a Project problem.
-	inspectRoot, _ := projectconfig.ResolveDataRoot(env.Home)
-	project, projectErr := projectconfig.Inspect(c.dir, inspectRoot)
-	projectMigrated := false
-	if projectErr == nil && project.Legacy && *fix {
-		migrationName := ""
-		if c.set("name") {
-			migrationName = *name
-		} else if project.Identity.Version == 1 {
-			migrationName = projectDirectoryName(project.Root)
-		}
-		project, projectErr = projectconfig.MigrateLegacy(project, migrationName)
-		projectMigrated = projectErr == nil
-	}
-	// Inspect accepts a legacy identity so doctor can check the unchanged
-	// Board path; normal commands use strict Discover and require migration.
+	project, projectErr := projectconfig.Discover(c.dir)
 	projectUsable := projectErr == nil
 	var databasePath string
 	var locateErr error
@@ -1083,19 +1059,9 @@ func runDoctor(ctx context.Context, args []string, env Env) error {
 		}
 	}
 	switch {
-	case projectErr == nil && project.Legacy:
-		lines = append(lines, doctorLine{"Project", "MIGRATION REQUIRED", fmt.Sprintf("%s (repository-tracked version %d identity; project_id %s)", project.LegacyPath, project.Identity.Version, project.Identity.ProjectID), "Run `aboard doctor --fix` to create the local identity " + project.IdentityPath + " with the same project_id; add `--name NAME` to set the project name."})
-		healthy = false
 	case projectErr == nil:
 		detail := fmt.Sprintf("%s (%s; project_id %s; identity %s)", project.Root, project.Identity.Name, project.Identity.ProjectID, project.IdentityPath)
-		if projectMigrated {
-			detail += "; identity migrated to the local Git identity"
-		}
-		next := ""
-		if project.LegacyPath != "" {
-			next = "Repository-tracked " + project.LegacyPath + " is no longer used; remove it with `git rm " + projectconfig.LegacyIdentityFileName + "` once every clone has migrated."
-		}
-		lines = append(lines, doctorLine{"Project", "OK", detail, next})
+		lines = append(lines, doctorLine{"Project", "OK", detail, ""})
 	case domain.IsCode(projectErr, projectconfig.CodeProjectNotFound):
 		lines = append(lines, doctorLine{"Project", "MISSING", projectErr.Error(), "Run `aboard init` inside the Git repository."})
 		healthy = false

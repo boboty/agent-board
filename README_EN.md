@@ -164,7 +164,7 @@ Agent Board is not about removing Humans from software development. It is about 
 
 - [Workflow Skill: full rules](workflow/SKILL.md)
 - [Everyday use: CLI / MCP / the two Skills](docs/usage_EN.md)
-- [Upgrade, migrate, clean, uninstall](docs/operations_EN.md)
+- [Upgrade, clean, uninstall](docs/operations_EN.md)
 - [PRODUCT.md](PRODUCT.md) — product definition and boundaries
 - [ARCHITECTURE.md](ARCHITECTURE.md) — architecture and persistence
 - [Development from source](docs/development.md)

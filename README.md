@@ -167,7 +167,7 @@ Agent Board 不是把人从研发里拿掉，而是把人从**盯过程**里拿�
 
 - [工作流规则：完整规范](workflow/SKILL.md)
 - [日常使用：命令行 / MCP / 两个技能](docs/usage.md)
-- [升级、迁移、清理、卸载](docs/operations.md)
+- [升级、清理、卸载](docs/operations.md)
 - [PRODUCT.md](PRODUCT.md) — 产品定义与边界
 - [ARCHITECTURE.md](ARCHITECTURE.md) — 架构与持久化
 - [从源码开发](docs/development.md)

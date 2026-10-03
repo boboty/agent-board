@@ -184,7 +184,7 @@ func TestInitAndCheck(t *testing.T) {
 	h.fails(ExitError, projectconfig.CodeProjectAlreadyInitialized, "init")
 	h.fails(ExitError, projectconfig.CodeProjectNotFound, "check", "--dir", t.TempDir())
 	h.fails(ExitError, projectconfig.CodeProjectNotFound, "check", "--dir", gitRepo(t))
-	if _, err := os.Stat(filepath.Join(h.repo, projectconfig.LegacyIdentityFileName)); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(h.repo, ".agent-board.json")); !os.IsNotExist(err) {
 		t.Fatalf("init wrote an identity into the worktree: %v", err)
 	}
 	custom := gitRepo(t)
@@ -252,121 +252,6 @@ func TestCleanCancellationPreservesProjectContents(t *testing.T) {
 	if after := snapshotTree(t, h.repo, dataDir); !reflect.DeepEqual(before, after) {
 		t.Fatalf("cancelled clean changed project contents: before %v after %v", before, after)
 	}
-}
-
-// legacyOnly turns the harness project into an unmigrated one: the local
-// identity is removed and contents are written to a repository-tracked
-// .agent-board.json. It returns the original identity and the legacy path.
-func (h *harness) legacyOnly(contents func(projectconfig.Identity) string) (projectconfig.Identity, string) {
-	h.t.Helper()
-	h.ok("board")
-	current := decodeJSON[projectconfig.Identity](h.t, string(mustRead(h.t, localIdentity(h.repo))))
-	if err := os.Remove(localIdentity(h.repo)); err != nil {
-		h.t.Fatal(err)
-	}
-	legacyPath := filepath.Join(h.repo, projectconfig.LegacyIdentityFileName)
-	if err := os.WriteFile(legacyPath, []byte(contents(current)), 0o600); err != nil {
-		h.t.Fatal(err)
-	}
-	return current, legacyPath
-}
-
-func TestDoctorExplicitlyMigratesLegacyIdentity(t *testing.T) {
-	h := newHarness(t)
-	var legacy string
-	current, legacyPath := h.legacyOnly(func(id projectconfig.Identity) string {
-		legacy = fmt.Sprintf(`{"version":1,"project_id":%q}`, id.ProjectID)
-		return legacy
-	})
-	h.fails(ExitError, projectconfig.CodeIdentityMigrationRequired, "board")
-	before := snapshotTree(t, h.env.Home, h.repo)
-	code, out, stderr := h.run("", "doctor")
-	assertDoctorEnglish(t, out)
-	if code != ExitError || stderr != "" || !strings.Contains(out, "Project  MIGRATION REQUIRED") || !strings.Contains(out, "aboard doctor --fix") || !strings.Contains(out, legacyPath) {
-		t.Fatalf("doctor legacy exit %d stdout %q stderr %q", code, out, stderr)
-	}
-	if after := snapshotTree(t, h.env.Home, h.repo); !reflect.DeepEqual(before, after) {
-		t.Fatalf("read-only doctor changed files: before %v after %v", before, after)
-	}
-	code, invalidNameOutput, invalidNameStderr := h.run("", "doctor", "--fix", "--name", " \t ")
-	if code != ExitError || invalidNameStderr != "" || !strings.Contains(invalidNameOutput, "project name is invalid") {
-		t.Fatalf("doctor --fix invalid name exit %d stdout %q stderr %q", code, invalidNameOutput, invalidNameStderr)
-	}
-	if _, err := os.Stat(localIdentity(h.repo)); !os.IsNotExist(err) {
-		t.Fatal("doctor --fix with an invalid name created a local identity")
-	}
-	code, out, stderr = h.run("", "doctor", "--fix", "--name", "Migrated Project")
-	if code == ExitUsage || stderr != "" || !strings.Contains(out, "Migrated Project") || !strings.Contains(out, "identity migrated to the local Git identity") || !strings.Contains(out, "git rm .agent-board.json") {
-		t.Fatalf("doctor --fix exit %d stdout %q stderr %q", code, out, stderr)
-	}
-	migrated := decodeJSON[projectconfig.Identity](t, string(mustRead(t, localIdentity(h.repo))))
-	if migrated.Version != 2 || migrated.ProjectID != current.ProjectID || migrated.Name != "Migrated Project" {
-		t.Fatalf("migrated identity = %+v; old identity %+v", migrated, current)
-	}
-	if string(mustRead(t, legacyPath)) != legacy {
-		t.Fatal("migration changed the repository-tracked identity")
-	}
-	h.ok("board")
-	if _, err := os.Stat(filepath.Join(h.env.Home, ".agent-board", current.ProjectID, "board.db")); err != nil {
-		t.Fatalf("existing Board data missing after migration: %v", err)
-	}
-	h.fails(ExitUsage, CodeUsage, "doctor", "--name", "bad")
-}
-
-// A legacy file whose Board data is not on this machine is a fresh clone:
-// doctor --fix does not migrate it, and init creates a new project_id.
-func TestLegacyIdentityWithoutLocalBoardNeedsInit(t *testing.T) {
-	h := &harness{t: t, repo: gitRepo(t), env: Env{Home: t.TempDir(), Actor: "cli-test", Version: "test"}}
-	h.env.Dir = h.repo
-	const id = "01M3VN4DT676SGJ90T58JRB13R"
-	legacy := fmt.Sprintf(`{"version":2,"project_id":%q,"name":"Tracked"}`, id)
-	legacyPath := filepath.Join(h.repo, projectconfig.LegacyIdentityFileName)
-	if err := os.WriteFile(legacyPath, []byte(legacy), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	h.fails(ExitError, projectconfig.CodeProjectNotFound, "board")
-	code, out, stderr := h.run("", "doctor", "--fix")
-	if code != ExitError || stderr != "" || !strings.Contains(out, "Project  MISSING") || !strings.Contains(out, "aboard init") {
-		t.Fatalf("doctor --fix fresh clone exit %d stdout %q stderr %q", code, out, stderr)
-	}
-	if _, err := os.Stat(localIdentity(h.repo)); !os.IsNotExist(err) {
-		t.Fatal("doctor --fix created an identity for a fresh clone")
-	}
-	status := decodeJSON[workspace.Status](t, h.ok("init"))
-	if status.ProjectID == id || !status.DatabaseExists {
-		t.Fatalf("fresh clone init status %+v inherited or lacks a Board", status)
-	}
-	if string(mustRead(t, legacyPath)) != legacy {
-		t.Fatal("init changed the repository-tracked identity")
-	}
-}
-
-func TestDoctorFixNameDefaults(t *testing.T) {
-	t.Run("version 1 uses project root", func(t *testing.T) {
-		h := newHarness(t)
-		current, _ := h.legacyOnly(func(id projectconfig.Identity) string {
-			return fmt.Sprintf(`{"version":1,"project_id":%q}`, id.ProjectID)
-		})
-		code, output, stderr := h.run("", "doctor", "--fix")
-		if code == ExitUsage || stderr != "" || !strings.Contains(output, filepath.Base(h.repo)) {
-			t.Fatalf("doctor --fix exit %d stdout %q stderr %q", code, output, stderr)
-		}
-		migrated := decodeJSON[projectconfig.Identity](t, string(mustRead(t, localIdentity(h.repo))))
-		if migrated.Version != 2 || migrated.Name != filepath.Base(h.repo) || migrated.ProjectID != current.ProjectID {
-			t.Fatalf("migrated identity = %+v, want root name and preserved ID", migrated)
-		}
-	})
-	t.Run("version 2 keeps tracked name", func(t *testing.T) {
-		h := newHarness(t)
-		current, _ := h.legacyOnly(func(id projectconfig.Identity) string {
-			return fmt.Sprintf(`{"version":2,"project_id":%q,"name":"Tracked Name"}`, id.ProjectID)
-		})
-		h.run("", "doctor", "--fix")
-		migrated := decodeJSON[projectconfig.Identity](t, string(mustRead(t, localIdentity(h.repo))))
-		if migrated.Name != "Tracked Name" || migrated.ProjectID != current.ProjectID {
-			t.Fatalf("migrated identity = %+v", migrated)
-		}
-	})
 }
 
 func TestSkillCommands(t *testing.T) {
