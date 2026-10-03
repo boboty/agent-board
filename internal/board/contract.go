@@ -84,6 +84,10 @@ type RecordFactInput struct {
 	Kind           domain.FactKind        `json:"kind"`
 	Body           string                 `json:"body"`
 	Data           json.RawMessage        `json:"data,omitempty"`
+	Baseline       *string                `json:"baseline,omitempty"`
+	Fingerprint    *string                `json:"fingerprint,omitempty"`
+	AcceptedCommit *string                `json:"accepted_commit,omitempty"`
+	Verdict        *string                `json:"verdict,omitempty"`
 	Provenance     *domain.FactProvenance `json:"provenance,omitempty"`
 }
 
@@ -239,6 +243,55 @@ func (in *RecordFactInput) normalize() error {
 	}
 	if strings.TrimSpace(in.Body) == "" {
 		return domain.Invalid("body", "must not be empty")
+	}
+	trimFactField := func(name string, value **string, required bool) error {
+		if *value == nil {
+			if required {
+				return domain.Invalid(name, "is required for this fact kind")
+			}
+			return nil
+		}
+		trimmed := strings.TrimSpace(**value)
+		if trimmed == "" {
+			return domain.Invalid(name, "must not be empty")
+		}
+		*value = &trimmed
+		return nil
+	}
+	switch in.Kind {
+	case domain.FactDelivery:
+		if err := trimFactField("baseline", &in.Baseline, true); err != nil {
+			return err
+		}
+		if err := trimFactField("fingerprint", &in.Fingerprint, true); err != nil {
+			return err
+		}
+		if err := trimFactField("accepted_commit", &in.AcceptedCommit, false); err != nil {
+			return err
+		}
+		if in.Verdict != nil {
+			return domain.Invalid("verdict", "is only valid for verification facts")
+		}
+	case domain.FactVerification:
+		if err := trimFactField("verdict", &in.Verdict, true); err != nil {
+			return err
+		}
+		if *in.Verdict != "PASS" && *in.Verdict != "RC" && *in.Verdict != "BLOCKED" {
+			return domain.Invalid("verdict", "must be PASS, RC, or BLOCKED")
+		}
+		if err := trimFactField("baseline", &in.Baseline, true); err != nil {
+			return err
+		}
+		if err := trimFactField("fingerprint", &in.Fingerprint, true); err != nil {
+			return err
+		}
+		if in.AcceptedCommit != nil {
+			return domain.Invalid("accepted_commit", "is only valid for delivery facts")
+		}
+	default:
+		if in.Baseline != nil || in.Fingerprint != nil || in.AcceptedCommit != nil || in.Verdict != nil {
+			return domain.Invalid("core_semantics", "are only valid for delivery or verification facts")
+		}
 	}
 	if len(in.Data) > 0 {
 		var object map[string]json.RawMessage

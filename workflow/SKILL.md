@@ -150,16 +150,16 @@ A dash means the role does not use the operation in this workflow. The Board wil
 
 Facts are append-only and never change state. Write the body for a reader who has nothing else, such as a replacement agent or the Human. Put a few machine-readable keys in `data` when they help. The Board stores `data` without interpreting it. `provenance` is a separate structured field, not part of `data`.
 
-| Kind | Body should say | Useful `data` |
+| Kind | Body should say | Structured fields and useful `data` |
 |---|---|---|
 | `execution` | which role was launched or replaced, and where | provenance: `role`, `session`, `harness`, `model`; `worktree`, `branch`, `baseline` in `data` |
-| `delivery` | what changed; baseline and fingerprint of the delivered diff; checks run with raw results; what was not verified and why; limitations; known out-of-scope findings. After PASS, the accepted commit and that it holds exactly the verified content | provenance: `role`, `session`, `harness`, `model`; `baseline`, `fingerprint`, `branch`; `accepted_commit` |
-| `verification` | verdict; baseline and fingerprint verified; evidence per acceptance criterion; what was not verified and why; for RC each issue with evidence; for BLOCKED what stops verification | provenance: `role`, `session`, `harness`, `model`; `verdict` (`PASS`/`RC`/`BLOCKED`), `baseline`, `fingerprint` |
+| `delivery` | what changed; checks run with raw results; what was not verified and why; limitations; known out-of-scope findings. After PASS, explain that the accepted commit holds exactly the verified content | structured fields: `baseline`, `fingerprint`, optional `accepted_commit`; useful `data`: `branch`, checks and other evidence; provenance: `role`, `session`, `harness`, `model` |
+| `verification` | evidence per acceptance criterion; what was not verified and why; for RC each issue with evidence; for BLOCKED what stops verification | structured fields: `verdict` (`PASS`/`RC`/`BLOCKED`), `baseline`, `fingerprint`; useful `data`: round and other evidence; provenance: `role`, `session`, `harness`, `model` |
 | `decision` | a Human decision, including explicit acceptance when no Verifier PASS is recorded | `decision` (for example `accept`), `reason` |
 | `handoff` | what is done, what remains, workspace state, what the next person must check first, where the agent activity is | provenance: `role`, `session`, `harness`, `model`; `worktree`, `branch`, `baseline`, `checkpoint` |
 | `note` | a clarification, a reason, or context that is not a Human decision | — |
 
-Record every delivery and every Verifier verdict, including RC verdicts. They are what make takeover and re-verification possible without a progress file.
+For delivery and verification, the structured fields are the source of truth for these core values; do not put their only copy in `data` or the body. `data` remains available for evidence, checks, limitations, branch, round, and other extensible details. Historical facts can lack structured core fields and must remain missing; do not infer them from old bodies or arbitrary data. Record every delivery and every Verifier verdict, including RC verdicts. They are what make takeover and re-verification possible without a progress file.
 
 ### Conventions
 

@@ -277,6 +277,9 @@ func TestWebBoardInRealBrowser(t *testing.T) {
 		chromedp.Click(`#action-fact summary`),
 		chromedp.SetValue(`#action-fact select[name=kind]`, "verification"),
 		chromedp.SendKeys(`#action-fact textarea[name=body]`, "PASS: verified in browser"),
+		chromedp.SendKeys(`#action-fact input[name=baseline]`, "e2e-baseline"),
+		chromedp.SendKeys(`#action-fact input[name=fingerprint]`, "e2e-fingerprint"),
+		chromedp.SetValue(`#action-fact select[name=verdict]`, "PASS"),
 		chromedp.SendKeys(`#action-fact textarea[name=data]`, `{"verdict":"PASS"}`),
 		chromedp.Click(`#action-fact button[data-action=record-fact]`),
 	)
@@ -286,7 +289,7 @@ func TestWebBoardInRealBrowser(t *testing.T) {
 	}
 	waitFor(t, ctx, "still blocked", columnHas("BLOCKED", 5)+` && !`+columnHas("DONE", 5))
 	longBody := strings.Repeat("Long delivery evidence stays in the history. ", 8) + "e2e-full-body-tail"
-	b.cli("fact", "record", "5", "--kind", "delivery", "--body", longBody, "--data", `{"commit":"e2e123"}`)
+	b.cli("fact", "record", "5", "--kind", "delivery", "--body", longBody, "--baseline", "e2e-baseline", "--fingerprint", "e2e-fingerprint", "--data", `{"commit":"e2e123"}`)
 	run(t, ctx, "open detail summaries", chromedp.Navigate(b.url+"/?task=5"), chromedp.WaitVisible(`#drawer [data-key-facts]`))
 	summaries := evalJSON[[]string](t, ctx, `[
   document.querySelector('[data-key-fact-kind="delivery"]')?.textContent || '',

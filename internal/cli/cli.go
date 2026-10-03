@@ -89,7 +89,7 @@ READY:
   ready reorder --version N REF...
 
 Facts and history:
-  fact record REF --kind K (--body B | --body-file PATH|-) [--data JSON] [--role R --session S --harness H --model M]
+  fact record REF --kind K (--body B | --body-file PATH|-) [--baseline SHA --fingerprint HASH] [--accepted-commit SHA] [--verdict PASS|RC|BLOCKED] [--data JSON] [--role R --session S --harness H --model M]
   fact list REF [--kind K]
   history REF                  facts and audit events of one task
   events [--task REF] [--after ID] [--limit N]
@@ -1398,6 +1398,10 @@ func runFactRecord(ctx context.Context, args []string, env Env) error {
 	body := c.flags.String("body", "", "fact body")
 	bodyFile := c.flags.String("body-file", "", "read the fact body from a file (- for stdin)")
 	data := c.flags.String("data", "", "JSON object stored with the fact")
+	baseline := c.flags.String("baseline", "", "delivery or verification baseline commit")
+	fingerprint := c.flags.String("fingerprint", "", "delivery or verification workspace fingerprint")
+	acceptedCommit := c.flags.String("accepted-commit", "", "accepted commit for a delivery fact")
+	verdict := c.flags.String("verdict", "", "verification verdict: PASS, RC, or BLOCKED")
 	role := c.flags.String("role", "", "self-reported provenance role")
 	session := c.flags.String("session", "", "self-reported provenance session")
 	harness := c.flags.String("harness", "", "self-reported provenance harness")
@@ -1419,6 +1423,18 @@ func runFactRecord(ctx context.Context, args []string, env Env) error {
 	in := ops.RecordFactArgs{Write: c.write(), Task: positional[0], Kind: domain.FactKind(*kind), Body: *body}
 	if c.set("data") {
 		in.Data = json.RawMessage(*data)
+	}
+	if c.set("baseline") {
+		in.Baseline = baseline
+	}
+	if c.set("fingerprint") {
+		in.Fingerprint = fingerprint
+	}
+	if c.set("accepted-commit") {
+		in.AcceptedCommit = acceptedCommit
+	}
+	if c.set("verdict") {
+		in.Verdict = verdict
 	}
 	if c.set("role") || c.set("session") || c.set("harness") || c.set("model") {
 		in.Provenance = &domain.FactProvenance{Role: *role, Session: *session, Harness: *harness, Model: *model}

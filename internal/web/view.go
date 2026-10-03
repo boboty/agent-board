@@ -295,12 +295,26 @@ func latestByKind(facts []domain.TaskFact) []domain.TaskFact {
 func factSummary(fact domain.TaskFact) string {
 	keys := map[domain.FactKind][]string{
 		domain.FactExecution:    {"role", "model", "harness"},
-		domain.FactDelivery:     {"accepted_commit", "commit", "files", "file_count"},
-		domain.FactVerification: {"verdict", "round"},
+		domain.FactDelivery:     {"commit", "files", "file_count"},
+		domain.FactVerification: {"round"},
 		domain.FactDecision:     {"decision"},
 		domain.FactHandoff:      {"worktree", "branch"},
 	}
 	var parts []string
+	if fact.Kind == domain.FactDelivery || fact.Kind == domain.FactVerification {
+		if fact.Verdict != nil {
+			parts = append(parts, "verdict "+*fact.Verdict)
+		}
+		if fact.Baseline != nil {
+			parts = append(parts, "baseline "+*fact.Baseline)
+		}
+		if fact.Fingerprint != nil {
+			parts = append(parts, "fingerprint "+*fact.Fingerprint)
+		}
+		if fact.AcceptedCommit != nil {
+			parts = append(parts, "accepted_commit "+*fact.AcceptedCommit)
+		}
+	}
 	var data map[string]json.RawMessage
 	if len(fact.Data) > 0 && json.Unmarshal(fact.Data, &data) == nil {
 		for _, key := range keys[fact.Kind] {
@@ -309,9 +323,11 @@ func factSummary(fact domain.TaskFact) string {
 			}
 		}
 	}
-	body := summaryBody(fact.Body)
-	if body != "" {
-		parts = append(parts, body)
+	if fact.Kind != domain.FactDelivery && fact.Kind != domain.FactVerification {
+		body := summaryBody(fact.Body)
+		if body != "" {
+			parts = append(parts, body)
+		}
 	}
 	return strings.Join(parts, " · ")
 }

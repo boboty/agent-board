@@ -82,14 +82,18 @@ type Task struct {
 // or a handoff.
 // Facts never change task state.
 type TaskFact struct {
-	ID         string          `json:"id"`
-	TaskID     string          `json:"task_id"`
-	Kind       FactKind        `json:"kind"`
-	Body       string          `json:"body"`
-	Data       json.RawMessage `json:"data,omitempty"`
-	Provenance *FactProvenance `json:"provenance"`
-	Actor      string          `json:"actor"`
-	CreatedAt  time.Time       `json:"created_at"`
+	ID             string          `json:"id"`
+	TaskID         string          `json:"task_id"`
+	Kind           FactKind        `json:"kind"`
+	Body           string          `json:"body"`
+	Data           json.RawMessage `json:"data,omitempty"`
+	Baseline       *string         `json:"baseline,omitempty"`
+	Fingerprint    *string         `json:"fingerprint,omitempty"`
+	AcceptedCommit *string         `json:"accepted_commit,omitempty"`
+	Verdict        *string         `json:"verdict,omitempty"`
+	Provenance     *FactProvenance `json:"provenance"`
+	Actor          string          `json:"actor"`
+	CreatedAt      time.Time       `json:"created_at"`
 }
 
 // FactProvenance records optional, self-reported execution context. It is

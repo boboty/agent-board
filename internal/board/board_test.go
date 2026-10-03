@@ -315,7 +315,7 @@ func TestIdempotentRetriesApplyOnce(t *testing.T) {
 		t.Fatalf("stored after replay = %+v", stored)
 	}
 
-	factIn := RecordFactInput{Actor: actor, IdempotencyKey: "fact-1", Task: first.ID, Kind: domain.FactDelivery, Body: "PR opened"}
+	factIn := RecordFactInput{Actor: actor, IdempotencyKey: "fact-1", Task: first.ID, Kind: domain.FactDelivery, Body: "PR opened", Baseline: ptr("base"), Fingerprint: ptr("fingerprint")}
 	f1, err := s.RecordFact(ctx, factIn)
 	if err != nil {
 		t.Fatal(err)
@@ -343,9 +343,9 @@ func TestFactsAreRecordedAndNeverChangeState(t *testing.T) {
 	// must record them and leave state alone.
 	facts := []RecordFactInput{
 		{Kind: domain.FactExecution, Body: "developer started", Data: json.RawMessage(`{"harness":"claude-code", "worktree":"../wt-ab1", "model":"opus", "lease_expires_at":"2020-01-01T00:00:00Z"}`)},
-		{Kind: domain.FactDelivery, Body: "delivered", Data: json.RawMessage(`{"commit":"abc123"}`), Provenance: &domain.FactProvenance{Role: "worker", Session: "same-session", Harness: "codex", Model: "gpt-6"}},
-		{Kind: domain.FactVerification, Body: "RC: missing test", Data: json.RawMessage(`{"result":"RC"}`), Provenance: &domain.FactProvenance{Role: "verifier", Session: "same-session", Harness: "codex", Model: "gpt-6"}},
-		{Kind: domain.FactVerification, Body: "PASS", Data: json.RawMessage(`{"result":"PASS"}`)},
+		{Kind: domain.FactDelivery, Body: "delivered", Data: json.RawMessage(`{"commit":"abc123"}`), Baseline: ptr("base"), Fingerprint: ptr("fingerprint"), Provenance: &domain.FactProvenance{Role: "worker", Session: "same-session", Harness: "codex", Model: "gpt-6"}},
+		{Kind: domain.FactVerification, Body: "RC: missing test", Data: json.RawMessage(`{"result":"RC"}`), Verdict: ptr("RC"), Baseline: ptr("base"), Fingerprint: ptr("fingerprint"), Provenance: &domain.FactProvenance{Role: "verifier", Session: "same-session", Harness: "codex", Model: "gpt-6"}},
+		{Kind: domain.FactVerification, Body: "PASS", Data: json.RawMessage(`{"result":"PASS"}`), Verdict: ptr("PASS"), Baseline: ptr("base"), Fingerprint: ptr("fingerprint")},
 		{Kind: domain.FactDecision, Body: "Human accepts without verifier PASS", Data: json.RawMessage(`{"decision":"accept","reason":"accepted by Human"}`)},
 		{Kind: domain.FactHandoff, Body: "handing off to new session"},
 		{Kind: domain.FactNote, Body: "blocked? no, just a note mentioning BLOCKED and DONE"},
@@ -369,6 +369,9 @@ func TestFactsAreRecordedAndNeverChangeState(t *testing.T) {
 	}
 	if all[1].Provenance == nil || all[2].Provenance == nil || all[1].Provenance.Session != all[2].Provenance.Session || all[1].Provenance.Role != "worker" || all[2].Provenance.Role != "verifier" {
 		t.Fatalf("fact provenance was not preserved (same-session facts must remain recordable): %+v", all[1:3])
+	}
+	if all[1].Baseline == nil || *all[1].Baseline != "base" || all[1].Fingerprint == nil || all[2].Verdict == nil || *all[2].Verdict != "RC" || all[2].Baseline == nil || all[2].Fingerprint == nil {
+		t.Fatalf("structured core fields missing from list_facts: %+v", all[1:3])
 	}
 	if all[0].Provenance != nil || all[3].Provenance != nil {
 		t.Fatalf("missing provenance was inferred: %+v", all)
@@ -401,6 +404,60 @@ func TestFactsAreRecordedAndNeverChangeState(t *testing.T) {
 		}
 	}
 	assertAuditConsistent(t, f)
+}
+
+func TestDeliveryAndVerificationCoreSemanticsAreRequiredAndTyped(t *testing.T) {
+	s, _ := newService(t)
+	task := mustQueue(t, s, mustCreate(t, s, "core semantics"))
+	valid := []RecordFactInput{
+		{Kind: domain.FactDelivery, Body: "delivered", Baseline: ptr(" base "), Fingerprint: ptr(" hash "), AcceptedCommit: ptr(" commit ")},
+		{Kind: domain.FactVerification, Body: "verified", Verdict: ptr("RC"), Baseline: ptr("base"), Fingerprint: ptr("hash")},
+	}
+	for _, in := range valid {
+		in.Actor, in.Task = actor, task.ID
+		stored, err := s.RecordFact(context.Background(), in)
+		if err != nil {
+			t.Fatalf("RecordFact(%s): %v", in.Kind, err)
+		}
+		if in.Kind == domain.FactDelivery && (stored.Baseline == nil || *stored.Baseline != "base" || stored.Fingerprint == nil || *stored.Fingerprint != "hash" || stored.AcceptedCommit == nil || *stored.AcceptedCommit != "commit") {
+			t.Fatalf("delivery fields %+v", stored)
+		}
+		if in.Kind == domain.FactVerification && (stored.Verdict == nil || *stored.Verdict != "RC" || stored.Baseline == nil || stored.Fingerprint == nil) {
+			t.Fatalf("verification fields %+v", stored)
+		}
+	}
+	invalid := []RecordFactInput{
+		{Kind: domain.FactDelivery, Body: "x", Fingerprint: ptr("hash")},
+		{Kind: domain.FactDelivery, Body: "x", Baseline: ptr("base"), Fingerprint: ptr(" ")},
+		{Kind: domain.FactDelivery, Body: "x", Baseline: ptr("base"), Fingerprint: ptr("hash"), AcceptedCommit: ptr("")},
+		{Kind: domain.FactVerification, Body: "x", Verdict: ptr("PASS"), Baseline: ptr("base")},
+		{Kind: domain.FactVerification, Body: "x", Verdict: ptr("pass"), Baseline: ptr("base"), Fingerprint: ptr("hash")},
+		{Kind: domain.FactVerification, Body: "x", Verdict: ptr("RC"), Baseline: ptr("base"), Fingerprint: ptr("hash"), AcceptedCommit: ptr("commit")},
+	}
+	for _, in := range invalid {
+		in.Actor, in.Task = actor, task.ID
+		if _, err := s.RecordFact(context.Background(), in); !domain.IsCode(err, domain.CodeInvalidArgument) {
+			t.Errorf("RecordFact(%s %+v) error=%v, want INVALID_ARGUMENT", in.Kind, in, err)
+		}
+	}
+}
+
+func TestLegacyFactCoreFieldsStayMissingOnRead(t *testing.T) {
+	s, f := newService(t)
+	task := mustCreate(t, s, "legacy fact")
+	_, err := f.raw(t).Exec(`INSERT INTO task_facts(id, task_id, kind, body, data, actor, created_at)
+		VALUES (?, ?, 'verification', 'PASS according to old body', '{"verdict":"PASS","baseline":"old-base","fingerprint":"old-hash"}', 'legacy', ?)`,
+		"01M3VN4DT676SGJ90T58JRB13X", task.ID, "2026-10-01T12:00:00Z")
+	if err != nil {
+		t.Fatal(err)
+	}
+	facts, err := s.ListFacts(context.Background(), ListFactsInput{Task: task.ID})
+	if err != nil || len(facts) != 1 {
+		t.Fatalf("ListFacts = %+v, %v", facts, err)
+	}
+	if facts[0].Baseline != nil || facts[0].Fingerprint != nil || facts[0].Verdict != nil || string(facts[0].Data) != `{"verdict":"PASS","baseline":"old-base","fingerprint":"old-hash"}` {
+		t.Fatalf("legacy semantics were inferred or evidence changed: %+v", facts[0])
+	}
 }
 
 // TestMutationAndEventCommitTogether injects a failure into the audit insert

@@ -205,10 +205,14 @@ func (h *handler) setTaskState(r *http.Request) (url.Values, error) {
 
 func (h *handler) recordFact(r *http.Request) (url.Values, error) {
 	args := ops.RecordFactArgs{
-		Write: writeArgs(r),
-		Task:  r.PathValue("ref"),
-		Kind:  domain.FactKind(r.PostForm.Get("kind")),
-		Body:  text(r, "body"),
+		Write:          writeArgs(r),
+		Task:           r.PathValue("ref"),
+		Kind:           domain.FactKind(r.PostForm.Get("kind")),
+		Body:           text(r, "body"),
+		Baseline:       optionalText(r, "baseline"),
+		Fingerprint:    optionalText(r, "fingerprint"),
+		AcceptedCommit: optionalText(r, "accepted_commit"),
+		Verdict:        optionalText(r, "verdict"),
 		Provenance: &domain.FactProvenance{
 			Role: r.PostForm.Get("role"), Session: r.PostForm.Get("session"),
 			Harness: r.PostForm.Get("harness"), Model: r.PostForm.Get("model"),
