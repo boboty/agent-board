@@ -10,7 +10,7 @@ aboard skill show workflow
 ```
 
 - `agent-board-management` helps the Human, or an explicit delegate, define, edit, queue, and prioritize Tasks.
-- `agent-board-workflow` guides execution across Developer, Independent Verifier, RC, BLOCKED, and delivery.
+- `agent-board-workflow` guides execution across Worker, Independent Verifier, RC, BLOCKED, and delivery.
 
 The Skills are independent. CLI is the baseline adapter; MCP is optional.
 
@@ -76,6 +76,6 @@ aboard mcp config opencode
 
 ## Execution setups
 
-One harness can cover both management and execution, but Developer and Independent Verifier should use separate, independent sessions/instances.
+One harness can cover both management and execution, but Worker and Independent Verifier should use separate, independent sessions/instances.
 
-With an Orchestrator such as Paseo or Orca, execution can continuously consume READY and assign a Developer plus a fresh Independent Verifier. Agent Board records Tasks, state, and facts; it does not choose models, harnesses, or scheduling strategy.
+With an Orchestrator such as Paseo or Orca, execution can continuously consume READY and assign a Worker plus a fresh Independent Verifier. Agent Board records Tasks, state, and facts; it does not choose models, harnesses, or scheduling strategy.

@@ -18,7 +18,7 @@ Owns workflow semantics:
 
 - who may do what
 - when a task should move
-- how Developer and Verifier cooperate
+- how Worker and Verifier cooperate
 - how RC, handoff, takeover, and human decisions work
 
 ### Agent Board
@@ -86,7 +86,7 @@ list_events
 
 These are capabilities, not workflow rules.
 
-For example, `set_task_state` records a requested state change reliably. Whether a Developer, Verifier, Orchestrator, or human should invoke it in a particular situation is defined by the Workflow Skill.
+For example, `set_task_state` records a requested state change reliably. Whether a Worker, Verifier, Orchestrator, or human should invoke it in a particular situation is defined by the Workflow Skill.
 
 ## SQLite direction
 

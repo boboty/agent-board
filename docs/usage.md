@@ -10,7 +10,7 @@ aboard skill show workflow
 ```
 
 - `agent-board-management`：帮助 Human 或其明确委托者定义、编辑、入队和排序 Task。
-- `agent-board-workflow`：指导执行端如何协调 Developer、Independent Verifier、RC、BLOCKED 与交付。
+- `agent-board-workflow`：指导执行端如何协调 Worker、Independent Verifier、RC、BLOCKED 与交付。
 
 两个 Skill 相互独立；CLI 是基础入口，MCP 是可选适配器。
 
@@ -76,6 +76,6 @@ aboard mcp config opencode
 
 ## 执行方式
 
-同一个 Harness 也能同时承担管理端和执行端，但 Developer 与 Independent Verifier 应使用彼此独立的会话/实例。
+同一个 Harness 也能同时承担管理端和执行端，但 Worker 与 Independent Verifier 应使用彼此独立的会话/实例。
 
-有 Paseo / Orca 等 Orchestrator 时，可以让它持续读取 READY，安排 Developer 和新的 Independent Verifier。Agent Board 只记录 Task、状态和事实，不负责决定模型、Harness 或调度策略。
+有 Paseo / Orca 等 Orchestrator 时，可以让它持续读取 READY，安排 Worker 和新的 Independent Verifier。Agent Board 只记录 Task、状态和事实，不负责决定模型、Harness 或调度策略。

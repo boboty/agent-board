@@ -16,7 +16,7 @@ The Workflow Skill defines how work should progress:
 
 - Task definition
 - Orchestrator responsibilities
-- Developer responsibilities
+- Worker responsibilities
 - Independent Verifier responsibilities
 - delivery
 - verification
@@ -53,7 +53,7 @@ The visible task lifecycle has exactly four states:
 - `DONE`
 - `BLOCKED`
 
-Developer, Verifier, RC, handoff, review, lease, and session are not top-level task states.
+Worker, Verifier, RC, handoff, review, lease, and session are not top-level task states.
 
 A task may exist before it is queued. That is represented separately from task state, for example by queue metadata such as `queued_at`; it is not a fifth Board column.
 

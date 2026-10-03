@@ -11,7 +11,7 @@ description: 管理 Agent Board 议程与 Task 定义。用户要求录入工作
 
 - Human 可以定义、接受、编辑 Task，将 Task 入队，并设置 READY 优先级。
 - 代理只有在 Human 明确委托相应权限后，才能执行这些写操作。`actor` 是审计记录中的自由文本标签，不代表授权。
-- 仅要求录入或入队时，不启动 Developer，不把 Task 设为 `IN_PROGRESS`，不记录 `execution` fact，不修改实现代码，也不提交、推送或合并。
+- 仅要求录入或入队时，不启动 Worker，不把 Task 设为 `IN_PROGRESS`，不记录 `execution` fact，不修改实现代码，也不提交、推送或合并。
 - 定义尚未完整或未获授权 Human/受托代理接受时，保持为草稿。`create_task` 创建的 Task 未入队且没有生命周期状态；`queue_task` 会记录 `READY` 并将 Task 追加到 READY 顺序末尾。
 - Task 状态仅有 `READY`、`IN_PROGRESS`、`DONE`、`BLOCKED`。本 Skill 只将 `READY` 用于已接受并入队的工作，不指导 Task 的执行。
 
