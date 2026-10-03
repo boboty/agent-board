@@ -54,7 +54,7 @@ Agent Board 首先是一套 **AI 研发工作制度**：规定什么工作值得
 
 `PASS / RC / BLOCKED` 是 verification verdict，不是额外的工单状态，也不会自动改变工单状态。
 
-人（Human）也可以明确接受一份没有 Verifier `PASS` 的交付，但这会记录为 `decision`，而不是伪装成 `PASS`。
+人（Human）也可以明确接受一份没有独立验收者 `PASS` 的交付，但这会记录为 `decision`，而不是伪装成 `PASS`。
 
 ![工单详情：交付、独立验收、事实历史](docs/images/task-detail.webp)
 
@@ -86,7 +86,7 @@ Agent Board 把这些规则落到一份外部、持久、可追溯的本地任�
 
 - **外部事实源**：任务状态不寄托在某个智能体的上下文、TODO 或进度文件里
 - **明确的交付与验收身份**：delivery 和 verification 使用结构化核心字段，可以机械判断验收对应哪一份交付
-- **独立验收事实**：执行者交付，新的独立验收者验证；Verifier `PASS` 与人的 `decision` 分开记录
+- **独立验收事实**：执行者交付，新的独立验收者验证；独立验收者 `PASS` 与人的 `decision` 分开记录
 - **可追溯来源**：事实可以记录 role、session、harness、model；`actor` 表示实际写入者，不是授权者，也不代表经过身份认证
 - **跨工具协作**：CLI、MCP 和 Web Board 操作同一份事实，不绑定 Claude Code、Codex、OpenCode 或特定模型
 - **本地优先**：一个二进制程序 + SQLite，无账号、无托管服务、无数据库服务器
@@ -179,7 +179,7 @@ aboard web
 ### 执行端怎么选
 
 - **单一 Claude Code / Codex / OpenCode**：也能使用；执行者和独立验收者使用彼此独立的会话或实例
-- **并行或后台执行**：可以结合 Paseo、Orca 或其他 Orchestrator 读取 READY，并安排执行者和新的独立验收者
+- **并行或后台执行**：可以结合 Paseo、Orca 或其他调度者读取 READY，并安排执行者和新的独立验收者
 
 是否自动 merge、push 或 release，由人在每次运行中明确授权。
 
@@ -189,7 +189,7 @@ aboard web
 - 执行者无权用“自检通过”替代独立验收
 - 独立验收者不修改交付内容
 - verification verdict 不自动改变工单状态
-- 人的接受不冒充 Verifier `PASS`
+- 人的接受不冒充独立验收者 `PASS`
 - 语义不清、冲突或异常时停止并记录，必要时进入 `BLOCKED`
 - merge、push、release 等不可逆动作是否自动完成，由人在本次运行中明确授权
 
