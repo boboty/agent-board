@@ -1,0 +1,97 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing tag to release, e.g. v0.2.0"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    env:
+      TAG: ${{ inputs.tag || github.ref_name }}
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - name: Validate tag
+        run: |
+          if [[ ! "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "::error::Tag '$TAG' is not a version tag like v1.2.3"
+            exit 1
+          fi
+
+      - name: Checkout tag
+        uses: actions/checkout@v7
+        with:
+          ref: refs/tags/${{ env.TAG }}
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Test
+        run: go test -count=1 ./...
+
+      - name: Build and package
+        run: |
+          set -euo pipefail
+          VERSION="${TAG#v}"
+          mkdir -p dist
+          export CGO_ENABLED=0
+          for target in darwin/arm64 darwin/amd64 linux/amd64 linux/arm64 windows/amd64; do
+            GOOS="${target%/*}"
+            GOARCH="${target#*/}"
+            exe=aboard
+            [ "$GOOS" = windows ] && exe=aboard.exe
+            stage="build/aboard_${VERSION}_${GOOS}_${GOARCH}"
+            mkdir -p "$stage"
+            GOOS="$GOOS" GOARCH="$GOARCH" go build -trimpath \
+              -ldflags "-s -w -X main.version=${TAG}" \
+              -o "$stage/$exe" ./cmd/aboard
+            cp LICENSE NOTICE README.md "$stage/"
+            name="aboard_${VERSION}_${GOOS}_${GOARCH}"
+            if [ "$GOOS" = windows ]; then
+              (cd build && zip -qr "../dist/${name}.zip" "$name")
+            else
+              tar -C build -czf "dist/${name}.tar.gz" "$name"
+            fi
+          done
+          (cd dist && sha256sum aboard_* > SHA256SUMS)
+          cat dist/SHA256SUMS
+
+      - name: Verify linux/amd64 binary version
+        run: |
+          got="$("build/aboard_${TAG#v}_linux_amd64/aboard" version)"
+          if [ "$got" != "$TAG" ]; then
+            echo "::error::aboard version returned '$got', expected '$TAG'"
+            exit 1
+          fi
+
+      - name: Publish GitHub Release
+        run: |
+          set -euo pipefail
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" dist/* --clobber
+          else
+            prerelease=()
+            [[ "$TAG" == *-* ]] && prerelease=(--prerelease)
+            gh release create "$TAG" dist/* --verify-tag --title "$TAG" --generate-notes "${prerelease[@]}"
+          fi
