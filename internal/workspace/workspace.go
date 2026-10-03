@@ -29,11 +29,11 @@ func HomeDir() string {
 // Locate discovers the project identity at or above start and resolves its
 // data directory and database path. It touches nothing on disk.
 func Locate(start string, home string) (projectconfig.Project, error) {
-	project, err := projectconfig.Discover(start)
+	dataRoot, err := projectconfig.ResolveDataRoot(home)
 	if err != nil {
 		return projectconfig.Project{}, err
 	}
-	dataRoot, err := projectconfig.ResolveDataRoot(home)
+	project, err := projectconfig.Discover(start, dataRoot)
 	if err != nil {
 		return projectconfig.Project{}, err
 	}

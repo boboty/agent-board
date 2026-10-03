@@ -21,7 +21,12 @@ aboard skill install --force workflow
 
 ## 迁移仓库内的 `.agent-board.json`
 
-项目身份现在保存在本机 Git common dir（`.git/agent-board.json`），不再放在工作树里。仍只有旧版仓库内 `.agent-board.json`（version 1 或 2）的项目，普通命令会返回 `PROJECT_IDENTITY_MIGRATION_REQUIRED`，Board 数据不受影响。普通 `aboard doctor` 是只读的；根据提示显式迁移：
+项目身份现在保存在本机 Git common dir（`.git/agent-board.json`），不再放在工作树里。仍只有旧版仓库内 `.agent-board.json`（version 1 或 2）的项目，按本机是否已有对应 Board 数据区分：
+
+- **本机已有 `~/.agent-board/<project_id>/board.db`**：普通命令返回 `PROJECT_IDENTITY_MIGRATION_REQUIRED`，需要显式迁移（见下）。
+- **本机没有对应 Board 数据**（例如另一台机器上的新 clone）：视为 fresh clone，普通命令返回 `PROJECT_NOT_FOUND`。运行 `aboard init` 生成新的本地身份和新的 `project_id`，不继承旧 ID，也不修改旧文件。
+
+普通 `aboard doctor` 是只读的；本机已有 Board 数据时，根据提示显式迁移：
 
 ```bash
 aboard doctor --fix
@@ -29,7 +34,7 @@ aboard doctor --fix
 aboard doctor --fix --name "Project Name"
 ```
 
-迁移保持原 `project_id` 不变，继续使用原 `~/.agent-board/<project_id>/board.db`，不移动、不修改 Board 数据，也不修改或删除仓库里的 `.agent-board.json`。每台机器上的 clone 各自执行一次迁移；全部迁移后，可用 `git rm .agent-board.json` 移除旧文件。
+迁移保持原 `project_id` 不变，继续使用原 `~/.agent-board/<project_id>/board.db`，不移动、不修改 Board 数据，也不修改或删除仓库里的 `.agent-board.json`。每台已有 Board 数据的机器各自执行一次迁移；全部迁移后，可用 `git rm .agent-board.json` 移除旧文件。
 
 ## 清理当前项目
 

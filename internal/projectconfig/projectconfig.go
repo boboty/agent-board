@@ -51,7 +51,8 @@ const (
 	// CodeInvalidIdentity means an identity file is unsafe or has invalid contents.
 	CodeInvalidIdentity = "INVALID_PROJECT_IDENTITY"
 	// CodeIdentityMigrationRequired means only a legacy repository-tracked
-	// identity exists and needs an explicit doctor --fix migration.
+	// identity exists, its Board data exists on this machine, and it needs an
+	// explicit doctor --fix migration.
 	CodeIdentityMigrationRequired = "PROJECT_IDENTITY_MIGRATION_REQUIRED"
 	// CodeProjectAlreadyInitialized means the repository already has an identity.
 	CodeProjectAlreadyInitialized = "PROJECT_ALREADY_INITIALIZED"
@@ -94,9 +95,10 @@ type IDGenerator interface {
 
 // Discover resolves the strict local identity of the Git repository
 // containing start. A repository with only a legacy identity fails with
-// CodeIdentityMigrationRequired.
-func Discover(start string) (Project, error) {
-	project, err := Inspect(start)
+// CodeIdentityMigrationRequired when that identity's Board database exists
+// under dataRoot, and with CodeProjectNotFound otherwise.
+func Discover(start, dataRoot string) (Project, error) {
+	project, err := Inspect(start, dataRoot)
 	if err != nil {
 		return Project{}, err
 	}
@@ -106,10 +108,13 @@ func Discover(start string) (Project, error) {
 	return project, nil
 }
 
-// Inspect resolves the local identity, or else the legacy identity (either
-// version). It is intended for doctor, which must report a legacy identity
-// without enabling normal Board commands to use it.
-func Inspect(start string) (Project, error) {
+// Inspect resolves the local identity, or else a legacy identity (either
+// version) whose Board database already exists under dataRoot. It is intended
+// for doctor, which must report a migratable legacy identity without enabling
+// normal Board commands to use it. A legacy identity without Board data on
+// this machine is a fresh clone: it is reported as CodeProjectNotFound so the
+// clone initializes its own identity instead of inheriting the project_id.
+func Inspect(start, dataRoot string) (Project, error) {
 	project, err := locateRepository(start)
 	if err != nil {
 		return Project{}, err
@@ -131,12 +136,39 @@ func Inspect(start string) (Project, error) {
 	if project.LegacyPath == "" {
 		return Project{}, domain.NewError(CodeProjectNotFound, "project identity not found in Git repository "+project.Root+"; run `aboard init`", false)
 	}
-	project.Identity, err = readIdentity(project.LegacyPath, true)
+	identity, err := readIdentity(project.LegacyPath, true)
 	if err != nil {
 		return Project{}, err
 	}
+	hasBoard, err := hasBoardData(dataRoot, identity.ProjectID)
+	if err != nil {
+		return Project{}, err
+	}
+	if !hasBoard {
+		return Project{}, domain.NewError(CodeProjectNotFound, "repository-tracked "+LegacyIdentityFileName+" has no Board data on this machine; run `aboard init` to create a new local identity", false)
+	}
+	project.Identity = identity
 	project.Legacy = true
 	return project, nil
+}
+
+// hasBoardData reports whether the Board database of projectID exists under
+// dataRoot.
+func hasBoardData(dataRoot, projectID string) (bool, error) {
+	if dataRoot == "" {
+		return false, pathError("data root is required")
+	}
+	path, err := ProjectDatabasePath(dataRoot, projectID)
+	if err != nil {
+		return false, err
+	}
+	if _, err := os.Stat(path); err == nil {
+		return true, nil
+	} else if errors.Is(err, fs.ErrNotExist) {
+		return false, nil
+	} else {
+		return false, domain.WrapError(err, CodeDiscoveryFailed, "cannot inspect Board database "+path, false)
+	}
 }
 
 // locateRepository resolves the worktree root, local identity path, and any
@@ -222,9 +254,11 @@ func ProjectDatabasePath(dataRoot, projectID string) (string, error) {
 	return filepath.Join(dataRoot, canonical, DatabaseFileName), nil
 }
 
-// Initialize creates a new local identity for the Git repository containing
-// start, and its project data directory. Existing local or legacy identities
-// are never overwritten. dataRoot must resolve outside the worktree, and every
+// Initialize creates a new local identity with a new project_id for the Git
+// repository containing start, and its project data directory. An existing
+// local identity is never overwritten; a legacy identity whose Board data
+// exists on this machine must be migrated instead, while one without Board
+// data is ignored and left untouched. dataRoot must resolve outside the worktree, and every
 // precondition is validated before any write; a failure removes only
 // directories created by this call.
 func Initialize(start string, generator IDGenerator, dataRoot, name string) (Project, error) {
@@ -248,7 +282,17 @@ func Initialize(start string, generator IDGenerator, dataRoot, name string) (Pro
 		return Project{}, domain.WrapError(err, CodeInitializationFailed, "cannot inspect identity destination", false)
 	}
 	if project.LegacyPath != "" {
-		return Project{}, domain.NewError(CodeProjectAlreadyInitialized, "legacy project identity exists at "+project.LegacyPath+"; run `aboard doctor --fix` to migrate it", false)
+		legacy, err := readIdentity(project.LegacyPath, true)
+		if err != nil {
+			return Project{}, err
+		}
+		hasBoard, err := hasBoardData(dataRoot, legacy.ProjectID)
+		if err != nil {
+			return Project{}, err
+		}
+		if hasBoard {
+			return Project{}, domain.NewError(CodeIdentityMigrationRequired, "legacy project identity at "+project.LegacyPath+" has Board data on this machine; run `aboard doctor --fix` to migrate it", false)
+		}
 	}
 	if err := validateNewDataRootLocation(project.Root, dataRoot); err != nil {
 		return Project{}, domain.WrapError(err, domain.CodeStorageConfiguration, "data root must be outside the repository", false)
@@ -282,7 +326,7 @@ func Initialize(start string, generator IDGenerator, dataRoot, name string) (Pro
 }
 
 // MigrateLegacy explicitly creates the local identity from a legacy identity
-// returned by Inspect. It preserves project_id, so the existing Board data is
+// returned by Inspect, which guarantees its Board data exists on this machine. It preserves project_id, so the existing Board data is
 // reused unchanged, and never modifies or removes the legacy file. A version
 // 2 legacy identity keeps its name unless name is non-empty; version 1 uses
 // name.

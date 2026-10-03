@@ -313,6 +313,34 @@ func TestDoctorExplicitlyMigratesLegacyIdentity(t *testing.T) {
 	h.fails(ExitUsage, CodeUsage, "doctor", "--name", "bad")
 }
 
+// A legacy file whose Board data is not on this machine is a fresh clone:
+// doctor --fix does not migrate it, and init creates a new project_id.
+func TestLegacyIdentityWithoutLocalBoardNeedsInit(t *testing.T) {
+	h := &harness{t: t, repo: gitRepo(t), env: Env{Home: t.TempDir(), Actor: "cli-test", Version: "test"}}
+	h.env.Dir = h.repo
+	const id = "01M3VN4DT676SGJ90T58JRB13R"
+	legacy := fmt.Sprintf(`{"version":2,"project_id":%q,"name":"Tracked"}`, id)
+	legacyPath := filepath.Join(h.repo, projectconfig.LegacyIdentityFileName)
+	if err := os.WriteFile(legacyPath, []byte(legacy), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	h.fails(ExitError, projectconfig.CodeProjectNotFound, "board")
+	code, out, stderr := h.run("", "doctor", "--fix")
+	if code != ExitError || stderr != "" || !strings.Contains(out, "Project  MISSING") || !strings.Contains(out, "aboard init") {
+		t.Fatalf("doctor --fix fresh clone exit %d stdout %q stderr %q", code, out, stderr)
+	}
+	if _, err := os.Stat(localIdentity(h.repo)); !os.IsNotExist(err) {
+		t.Fatal("doctor --fix created an identity for a fresh clone")
+	}
+	status := decodeJSON[workspace.Status](t, h.ok("init"))
+	if status.ProjectID == id || !status.DatabaseExists {
+		t.Fatalf("fresh clone init status %+v inherited or lacks a Board", status)
+	}
+	if string(mustRead(t, legacyPath)) != legacy {
+		t.Fatal("init changed the repository-tracked identity")
+	}
+}
+
 func TestDoctorFixNameDefaults(t *testing.T) {
 	t.Run("version 1 uses project root", func(t *testing.T) {
 		h := newHarness(t)

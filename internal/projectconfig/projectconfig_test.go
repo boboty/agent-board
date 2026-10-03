@@ -72,7 +72,7 @@ func TestInitializeAndDiscover(t *testing.T) {
 	if err := os.MkdirAll(nested, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	found, err := projectconfig.Discover(nested)
+	found, err := projectconfig.Discover(nested, dataRoot)
 	if err != nil || found.Identity != project.Identity || found.Root != repo {
 		t.Fatalf("Discover() = %+v, %v", found, err)
 	}
@@ -100,13 +100,47 @@ func TestInitializeRejectsDataRootInsideRepository(t *testing.T) {
 	}
 }
 
-func TestInitializeRefusesLegacyIdentity(t *testing.T) {
-	repo := gitRepo(t)
-	if err := os.WriteFile(filepath.Join(repo, projectconfig.LegacyIdentityFileName), []byte(`{"version":2,"project_id":"01M3VN4DT676SGJ90T58JRB13R","name":"x"}`), 0o600); err != nil {
+// A legacy identity without Board data on this machine is a fresh clone: it
+// is not discoverable, and Initialize creates a new project_id without
+// touching the legacy file. With Board data, Initialize requires migration.
+func TestLegacyIdentityWithoutBoardDataIsFreshClone(t *testing.T) {
+	const id = "01M3VN4DT676SGJ90T58JRB13R"
+	repo, dataRoot := gitRepo(t), t.TempDir()
+	legacyPath := filepath.Join(repo, projectconfig.LegacyIdentityFileName)
+	legacy := `{"version":2,"project_id":"` + id + `","name":"x"}`
+	if err := os.WriteFile(legacyPath, []byte(legacy), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := projectconfig.Initialize(repo, generator(t), t.TempDir(), "x"); !domain.IsCode(err, projectconfig.CodeProjectAlreadyInitialized) {
-		t.Fatalf("Initialize() with legacy identity error = %v", err)
+	if _, err := projectconfig.Discover(repo, dataRoot); !domain.IsCode(err, projectconfig.CodeProjectNotFound) {
+		t.Fatalf("Discover() fresh clone error = %v", err)
+	}
+	if _, err := projectconfig.Inspect(repo, dataRoot); !domain.IsCode(err, projectconfig.CodeProjectNotFound) {
+		t.Fatalf("Inspect() fresh clone error = %v", err)
+	}
+	// An empty data directory is not Board data.
+	if err := os.MkdirAll(filepath.Join(dataRoot, id), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	project, err := projectconfig.Initialize(repo, generator(t), dataRoot, "fresh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if project.Identity.ProjectID == id {
+		t.Fatal("fresh clone inherited the legacy project_id")
+	}
+	if contents, err := os.ReadFile(legacyPath); err != nil || string(contents) != legacy {
+		t.Fatalf("Initialize changed the legacy file: %q, %v", contents, err)
+	}
+
+	withData := gitRepo(t)
+	if err := os.WriteFile(filepath.Join(withData, projectconfig.LegacyIdentityFileName), []byte(legacy), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dataRoot, id, projectconfig.DatabaseFileName), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := projectconfig.Initialize(withData, generator(t), dataRoot, "x"); !domain.IsCode(err, projectconfig.CodeIdentityMigrationRequired) {
+		t.Fatalf("Initialize() with legacy Board data error = %v", err)
 	}
 }
 
@@ -123,14 +157,14 @@ func TestDiscoverRejectsInvalidIdentity(t *testing.T) {
 		if err := os.WriteFile(localIdentity(repo), []byte(contents), 0o600); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := projectconfig.Discover(repo); !domain.IsCode(err, projectconfig.CodeInvalidIdentity) {
+		if _, err := projectconfig.Discover(repo, t.TempDir()); !domain.IsCode(err, projectconfig.CodeInvalidIdentity) {
 			t.Errorf("%s: error = %v", name, err)
 		}
 	}
-	if _, err := projectconfig.Discover(gitRepo(t)); !domain.IsCode(err, projectconfig.CodeProjectNotFound) {
+	if _, err := projectconfig.Discover(gitRepo(t), t.TempDir()); !domain.IsCode(err, projectconfig.CodeProjectNotFound) {
 		t.Errorf("missing identity: error = %v", err)
 	}
-	if _, err := projectconfig.Discover(t.TempDir()); !domain.IsCode(err, projectconfig.CodeProjectNotFound) {
+	if _, err := projectconfig.Discover(t.TempDir(), t.TempDir()); !domain.IsCode(err, projectconfig.CodeProjectNotFound) {
 		t.Errorf("outside Git: error = %v", err)
 	}
 }
@@ -170,14 +204,14 @@ func TestWorktreesShareIdentityAndClonesDoNot(t *testing.T) {
 	worktree := filepath.Join(filepath.Dir(repo), filepath.Base(repo)+"-wt")
 	git(t, repo, "worktree", "add", "-q", worktree)
 	t.Cleanup(func() { os.RemoveAll(worktree) })
-	found, err := projectconfig.Discover(worktree)
+	found, err := projectconfig.Discover(worktree, dataRoot)
 	if err != nil || found.Identity != project.Identity || found.IdentityPath != project.IdentityPath {
 		t.Fatalf("worktree Discover() = %+v, %v", found, err)
 	}
 
 	clone := filepath.Join(t.TempDir(), "clone")
 	git(t, repo, "clone", "-q", repo, clone)
-	if _, err := projectconfig.Discover(clone); !domain.IsCode(err, projectconfig.CodeProjectNotFound) {
+	if _, err := projectconfig.Discover(clone, dataRoot); !domain.IsCode(err, projectconfig.CodeProjectNotFound) {
 		t.Fatalf("clone Discover() error = %v", err)
 	}
 }
@@ -197,13 +231,6 @@ func TestLegacyIdentityRequiresExplicitMigration(t *testing.T) {
 			if err := os.WriteFile(legacyPath, []byte(test.contents), 0o600); err != nil {
 				t.Fatal(err)
 			}
-			if _, err := projectconfig.Discover(root); !domain.IsCode(err, projectconfig.CodeIdentityMigrationRequired) {
-				t.Fatalf("Discover legacy error = %v", err)
-			}
-			inspected, err := projectconfig.Inspect(root)
-			if err != nil || !inspected.Legacy || inspected.LegacyPath != legacyPath || inspected.Identity.ProjectID != id {
-				t.Fatalf("Inspect legacy = %+v, %v", inspected, err)
-			}
 			dataDir := filepath.Join(dataRoot, id)
 			if err := os.MkdirAll(dataDir, 0o700); err != nil {
 				t.Fatal(err)
@@ -215,11 +242,18 @@ func TestLegacyIdentityRequiresExplicitMigration(t *testing.T) {
 			if err := db.Close(context.Background()); err != nil {
 				t.Fatal(err)
 			}
+			if _, err := projectconfig.Discover(root, dataRoot); !domain.IsCode(err, projectconfig.CodeIdentityMigrationRequired) {
+				t.Fatalf("Discover legacy error = %v", err)
+			}
+			inspected, err := projectconfig.Inspect(root, dataRoot)
+			if err != nil || !inspected.Legacy || inspected.LegacyPath != legacyPath || inspected.Identity.ProjectID != id {
+				t.Fatalf("Inspect legacy = %+v, %v", inspected, err)
+			}
 			migrated, err := projectconfig.MigrateLegacy(inspected, test.migrationName)
 			if err != nil || migrated.Legacy || migrated.Identity.Version != 2 || migrated.Identity.ProjectID != id || migrated.Identity.Name != test.wantName {
 				t.Fatalf("MigrateLegacy = %+v, %v", migrated, err)
 			}
-			found, err := projectconfig.Discover(root)
+			found, err := projectconfig.Discover(root, dataRoot)
 			if err != nil || found.Identity != migrated.Identity || found.LegacyPath != legacyPath {
 				t.Fatalf("Discover migrated = %+v, %v", found, err)
 			}

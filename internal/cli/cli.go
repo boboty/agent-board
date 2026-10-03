@@ -105,7 +105,7 @@ Common flags:
 
 REF is a task ID or number (12 or #12). Output is JSON.
 doctor prints human-readable component status; exit 0 means no problems were found by its read-only checks, 1 means a component needs attention, and 2 means invalid usage. It checks that the Board file exists and has a recognizable SQLite format; it does not connect to the database. MCP status reports that operation definitions are loaded; it does not start an MCP service.
-aboard doctor --fix [--name NAME] explicitly migrates a repository-tracked .agent-board.json to the local Git identity, keeping its project_id and Board data; ordinary aboard doctor is read-only.
+aboard doctor --fix [--name NAME] explicitly migrates a repository-tracked .agent-board.json whose Board data exists on this machine to the local Git identity, keeping its project_id; a legacy file without local Board data is a fresh clone and needs aboard init; ordinary aboard doctor is read-only.
 `
 
 type usageError struct{ message string }
@@ -1055,7 +1055,9 @@ func runDoctor(ctx context.Context, args []string, env Env) error {
 		lines = append(lines, doctorLine{"Skills", status, strings.Join(skillDetails, "; "), next})
 	}
 
-	project, projectErr := projectconfig.Inspect(c.dir)
+	// An unresolvable data root surfaces here as a Project problem.
+	inspectRoot, _ := projectconfig.ResolveDataRoot(env.Home)
+	project, projectErr := projectconfig.Inspect(c.dir, inspectRoot)
 	projectMigrated := false
 	if projectErr == nil && project.Legacy && *fix {
 		migrationName := ""
