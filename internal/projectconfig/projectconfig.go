@@ -1,20 +1,25 @@
-// Package projectconfig discovers and initializes a repository's project
-// identity and resolves the shared database path outside the repository, so
-// every worktree and harness of one project opens the same Board database.
+// Package projectconfig discovers and initializes a repository's local
+// project identity and resolves the Board database path outside the
+// repository. The identity lives in the Git common directory, so every
+// worktree of one local repository opens the same Board database, while an
+// independent clone on another machine gets its own identity.
 //
 // Derived from rhizome-mcp (https://github.com/Odrin/rhizome-mcp), via
 // boboty/agent-board-rhizome-poc, licensed under Apache-2.0. See NOTICE.
-// Modified: renamed identity file; data lives under ~/.agent-board on every
-// platform; removed rollback, root-only loading, and diagnostic helpers.
+// Modified: identity stored in the Git common directory instead of the
+// worktree; data lives under ~/.agent-board on every platform; removed
+// rollback and diagnostic helpers.
 package projectconfig
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"io/fs"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"unicode"
@@ -25,8 +30,12 @@ import (
 )
 
 const (
-	// IdentityFileName is the repository-local project identity file.
-	IdentityFileName = ".agent-board.json"
+	// IdentityFileName is the local project identity file inside the Git
+	// common directory. It is never part of the worktree or the history.
+	IdentityFileName = "agent-board.json"
+	// LegacyIdentityFileName is the former repository-tracked identity file.
+	// It is read only to offer an explicit migration.
+	LegacyIdentityFileName = ".agent-board.json"
 	// CurrentIdentityVersion is the only identity format accepted by normal
 	// project discovery.
 	CurrentIdentityVersion = 2
@@ -36,14 +45,15 @@ const (
 	// project's Board data, on every platform.
 	DataRootName = ".agent-board"
 
-	// CodeProjectNotFound means no identity file exists at or above the start path.
+	// CodeProjectNotFound means the start path is not in a Git repository or
+	// the repository has no identity.
 	CodeProjectNotFound = "PROJECT_NOT_FOUND"
 	// CodeInvalidIdentity means an identity file is unsafe or has invalid contents.
 	CodeInvalidIdentity = "INVALID_PROJECT_IDENTITY"
-	// CodeIdentityMigrationRequired means a version 1 identity needs an
-	// explicit doctor --fix migration.
+	// CodeIdentityMigrationRequired means only a legacy repository-tracked
+	// identity exists and needs an explicit doctor --fix migration.
 	CodeIdentityMigrationRequired = "PROJECT_IDENTITY_MIGRATION_REQUIRED"
-	// CodeProjectAlreadyInitialized means the repository already has an identity entry.
+	// CodeProjectAlreadyInitialized means the repository already has an identity.
 	CodeProjectAlreadyInitialized = "PROJECT_ALREADY_INITIALIZED"
 	// CodePathResolution means the data location cannot be resolved.
 	CodePathResolution = "APP_DATA_PATH_ERROR"
@@ -53,17 +63,25 @@ const (
 	CodeDiscoveryFailed = "PROJECT_DISCOVERY_FAILED"
 )
 
-// Identity is the complete on-disk .agent-board.json model.
+// Identity is the complete on-disk identity model, shared by the local
+// identity and the legacy repository-tracked file.
 type Identity struct {
 	Version   int    `json:"version"`
 	ProjectID string `json:"project_id"`
 	Name      string `json:"name"`
 }
 
-// Project identifies a repository and its external storage locations. DataDir
+// Project identifies a repository and its storage locations. Root is the
+// worktree containing the start path. IdentityPath is the local identity in
+// the Git common directory, whether or not it exists yet. LegacyPath is set
+// when a repository-tracked .agent-board.json is present; Legacy reports
+// that Identity was read from it because no local identity exists. DataDir
 // and DatabasePath are empty for projects returned by Discover.
 type Project struct {
 	Root         string
+	IdentityPath string
+	LegacyPath   string
+	Legacy       bool
 	Identity     Identity
 	DataDir      string
 	DatabasePath string
@@ -74,44 +92,109 @@ type IDGenerator interface {
 	New() (string, error)
 }
 
-// Discover searches upward from start for a strict project identity. If start
-// names a file, discovery begins in its containing directory.
+// Discover resolves the strict local identity of the Git repository
+// containing start. A repository with only a legacy identity fails with
+// CodeIdentityMigrationRequired.
 func Discover(start string) (Project, error) {
-	return discover(start, false)
+	project, err := Inspect(start)
+	if err != nil {
+		return Project{}, err
+	}
+	if project.Legacy {
+		return Project{}, domain.NewError(CodeIdentityMigrationRequired, "repository-tracked "+LegacyIdentityFileName+" requires explicit migration to the local Git identity; run `aboard doctor --fix`", false)
+	}
+	return project, nil
 }
 
-// Inspect discovers and validates either supported identity version. It is
-// intended for doctor, which must report version 1 without enabling normal
-// Board commands to use it.
+// Inspect resolves the local identity, or else the legacy identity (either
+// version). It is intended for doctor, which must report a legacy identity
+// without enabling normal Board commands to use it.
 func Inspect(start string) (Project, error) {
-	return discover(start, true)
+	project, err := locateRepository(start)
+	if err != nil {
+		return Project{}, err
+	}
+	info, err := os.Lstat(project.IdentityPath)
+	switch {
+	case err == nil:
+		if !info.Mode().IsRegular() {
+			return Project{}, invalidIdentity(errors.New("identity path is not a regular file"))
+		}
+		project.Identity, err = readIdentity(project.IdentityPath, false)
+		if err != nil {
+			return Project{}, err
+		}
+		return project, nil
+	case !errors.Is(err, fs.ErrNotExist):
+		return Project{}, domain.WrapError(err, CodeDiscoveryFailed, "cannot inspect project identity", false)
+	}
+	if project.LegacyPath == "" {
+		return Project{}, domain.NewError(CodeProjectNotFound, "project identity not found in Git repository "+project.Root+"; run `aboard init`", false)
+	}
+	project.Identity, err = readIdentity(project.LegacyPath, true)
+	if err != nil {
+		return Project{}, err
+	}
+	project.Legacy = true
+	return project, nil
 }
 
-func discover(start string, allowLegacy bool) (Project, error) {
+// locateRepository resolves the worktree root, local identity path, and any
+// legacy identity file for start without reading identities.
+func locateRepository(start string) (Project, error) {
 	dir, err := discoveryStart(start)
 	if err != nil {
 		return Project{}, domain.WrapError(err, CodeDiscoveryFailed, "cannot inspect project discovery start", false)
 	}
+	command := exec.Command("git", "-C", dir, "rev-parse", "--path-format=absolute", "--show-toplevel", "--git-common-dir")
+	var stderr bytes.Buffer
+	command.Stderr = &stderr
+	output, err := command.Output()
+	if err != nil {
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) {
+			return Project{}, domain.NewError(CodeProjectNotFound, "not inside a Git worktree: "+strings.TrimSpace(stderr.String()), false)
+		}
+		return Project{}, domain.WrapError(err, CodeDiscoveryFailed, "cannot run git to locate the repository", false)
+	}
+	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
+	if len(lines) != 2 {
+		return Project{}, domain.NewError(CodeDiscoveryFailed, "unexpected git rev-parse output", false)
+	}
+	root, err := canonicalDirectory(lines[0])
+	if err != nil {
+		return Project{}, domain.WrapError(err, CodeDiscoveryFailed, "cannot resolve worktree root", false)
+	}
+	commonDir, err := canonicalDirectory(lines[1])
+	if err != nil {
+		return Project{}, domain.WrapError(err, CodeDiscoveryFailed, "cannot resolve Git common directory", false)
+	}
+	project := Project{Root: root, IdentityPath: filepath.Join(commonDir, IdentityFileName)}
+	legacyPath, err := findLegacy(dir, root)
+	if err != nil {
+		return Project{}, err
+	}
+	project.LegacyPath = legacyPath
+	return project, nil
+}
+
+// findLegacy searches from dir up to root for a legacy identity file.
+func findLegacy(dir, root string) (string, error) {
 	for {
-		identityPath := filepath.Join(dir, IdentityFileName)
-		info, lstatErr := os.Lstat(identityPath)
+		path := filepath.Join(dir, LegacyIdentityFileName)
+		info, err := os.Lstat(path)
 		switch {
-		case lstatErr == nil:
+		case err == nil:
 			if !info.Mode().IsRegular() {
-				return Project{}, invalidIdentity(errors.New("identity path is not a regular file"))
+				return "", invalidIdentity(errors.New(path + " is not a regular file"))
 			}
-			identity, readErr := readIdentity(identityPath, allowLegacy)
-			if readErr != nil {
-				return Project{}, readErr
-			}
-			return Project{Root: dir, Identity: identity}, nil
-		case errors.Is(lstatErr, fs.ErrNotExist):
-		default:
-			return Project{}, domain.WrapError(lstatErr, CodeDiscoveryFailed, "cannot inspect project identity", false)
+			return path, nil
+		case !errors.Is(err, fs.ErrNotExist):
+			return "", domain.WrapError(err, CodeDiscoveryFailed, "cannot inspect legacy project identity", false)
 		}
 		parent := filepath.Dir(dir)
-		if parent == dir {
-			return Project{}, domain.NewError(CodeProjectNotFound, "project identity not found", false)
+		if dir == root || parent == dir {
+			return "", nil
 		}
 		dir = parent
 	}
@@ -139,32 +222,35 @@ func ProjectDatabasePath(dataRoot, projectID string) (string, error) {
 	return filepath.Join(dataRoot, canonical, DatabaseFileName), nil
 }
 
-// Initialize creates a new repository identity and project data directory.
-// Existing identity destinations are never overwritten. dataRoot must resolve
-// outside the repository, and every precondition is validated before any
-// write; a failure removes only directories created by this call.
-func Initialize(repositoryRoot string, generator IDGenerator, dataRoot, name string) (Project, error) {
-	root, err := canonicalDirectory(repositoryRoot)
-	if err != nil {
-		return Project{}, domain.WrapError(err, CodeInitializationFailed, "repository root must be an existing directory", false)
-	}
+// Initialize creates a new local identity for the Git repository containing
+// start, and its project data directory. Existing local or legacy identities
+// are never overwritten. dataRoot must resolve outside the worktree, and every
+// precondition is validated before any write; a failure removes only
+// directories created by this call.
+func Initialize(start string, generator IDGenerator, dataRoot, name string) (Project, error) {
 	if generator == nil {
 		return Project{}, domain.NewError(CodeInitializationFailed, "project ID generator is required", false)
 	}
-	name, err = ValidateProjectName(name)
+	name, err := ValidateProjectName(name)
 	if err != nil {
 		return Project{}, domain.WrapError(err, CodeInitializationFailed, "project name is invalid", false)
 	}
 	if dataRoot == "" {
 		return Project{}, pathError("data root is required")
 	}
-	identityPath := filepath.Join(root, IdentityFileName)
-	if _, err := os.Lstat(identityPath); err == nil {
-		return Project{}, domain.NewError(CodeProjectAlreadyInitialized, "project identity already exists at "+identityPath, false)
+	project, err := locateRepository(start)
+	if err != nil {
+		return Project{}, err
+	}
+	if _, err := os.Lstat(project.IdentityPath); err == nil {
+		return Project{}, domain.NewError(CodeProjectAlreadyInitialized, "project identity already exists at "+project.IdentityPath, false)
 	} else if !errors.Is(err, fs.ErrNotExist) {
 		return Project{}, domain.WrapError(err, CodeInitializationFailed, "cannot inspect identity destination", false)
 	}
-	if err := validateNewDataRootLocation(root, dataRoot); err != nil {
+	if project.LegacyPath != "" {
+		return Project{}, domain.NewError(CodeProjectAlreadyInitialized, "legacy project identity exists at "+project.LegacyPath+"; run `aboard doctor --fix` to migrate it", false)
+	}
+	if err := validateNewDataRootLocation(project.Root, dataRoot); err != nil {
 		return Project{}, domain.WrapError(err, domain.CodeStorageConfiguration, "data root must be outside the repository", false)
 	}
 
@@ -176,27 +262,50 @@ func Initialize(repositoryRoot string, generator IDGenerator, dataRoot, name str
 	if err != nil {
 		return Project{}, domain.WrapError(err, CodeInitializationFailed, "generated project ID is invalid", false)
 	}
-	identity := Identity{Version: CurrentIdentityVersion, ProjectID: projectID, Name: name}
-	dataDir := filepath.Join(dataRoot, projectID)
+	project.Identity = Identity{Version: CurrentIdentityVersion, ProjectID: projectID, Name: name}
+	project.DataDir = filepath.Join(dataRoot, projectID)
+	project.DatabasePath = filepath.Join(project.DataDir, DatabaseFileName)
 
-	createdDirs, err := createDirectories(dataDir)
+	createdDirs, err := createDirectories(project.DataDir)
 	if err != nil {
 		cleanupDirectories(createdDirs)
 		return Project{}, domain.WrapError(err, CodeInitializationFailed, "cannot create project data directory", false)
 	}
-	if err := createIdentityAtomically(root, identity); err != nil {
+	if err := createIdentityAtomically(project.IdentityPath, project.Identity); err != nil {
 		cleanupDirectories(createdDirs)
 		if errors.Is(err, fs.ErrExist) {
-			return Project{}, domain.WrapError(err, CodeProjectAlreadyInitialized, "project identity already exists at "+identityPath, false)
+			return Project{}, domain.WrapError(err, CodeProjectAlreadyInitialized, "project identity already exists at "+project.IdentityPath, false)
 		}
 		return Project{}, domain.WrapError(err, CodeInitializationFailed, "cannot create project identity", false)
 	}
-	return Project{
-		Root:         root,
-		Identity:     identity,
-		DataDir:      dataDir,
-		DatabasePath: filepath.Join(dataDir, DatabaseFileName),
-	}, nil
+	return project, nil
+}
+
+// MigrateLegacy explicitly creates the local identity from a legacy identity
+// returned by Inspect. It preserves project_id, so the existing Board data is
+// reused unchanged, and never modifies or removes the legacy file. A version
+// 2 legacy identity keeps its name unless name is non-empty; version 1 uses
+// name.
+func MigrateLegacy(project Project, name string) (Project, error) {
+	if !project.Legacy {
+		return Project{}, domain.NewError(CodeInvalidIdentity, "only a legacy identity can be migrated", false)
+	}
+	if name == "" {
+		name = project.Identity.Name
+	}
+	name, err := ValidateProjectName(name)
+	if err != nil {
+		return Project{}, domain.WrapError(err, CodeInvalidIdentity, "project name is invalid", false)
+	}
+	project.Identity = Identity{Version: CurrentIdentityVersion, ProjectID: project.Identity.ProjectID, Name: name}
+	if err := createIdentityAtomically(project.IdentityPath, project.Identity); err != nil {
+		if errors.Is(err, fs.ErrExist) {
+			return Project{}, domain.WrapError(err, CodeProjectAlreadyInitialized, "project identity already exists at "+project.IdentityPath, false)
+		}
+		return Project{}, domain.WrapError(err, CodeInitializationFailed, "cannot create local project identity", false)
+	}
+	project.Legacy = false
+	return project, nil
 }
 
 // validateNewDataRootLocation confirms that dataRoot, which may not exist yet,
@@ -272,15 +381,12 @@ func discoveryStart(start string) (string, error) {
 func readIdentity(path string, allowLegacy bool) (Identity, error) {
 	file, err := os.Open(path)
 	if err != nil {
-		return Identity{}, invalidIdentity(err)
+		return Identity{}, domain.WrapError(err, CodeInvalidIdentity, "project identity "+path+" is invalid", false)
 	}
 	defer file.Close()
 	identity, err := decodeIdentity(file, allowLegacy)
 	if err != nil {
-		if domain.IsCode(err, CodeIdentityMigrationRequired) {
-			return Identity{}, err
-		}
-		return Identity{}, invalidIdentity(err)
+		return Identity{}, domain.WrapError(err, CodeInvalidIdentity, "project identity "+path+" is invalid", false)
 	}
 	return identity, nil
 }
@@ -295,10 +401,7 @@ func decodeIdentity(reader io.Reader, allowLegacy bool) (Identity, error) {
 	if _, err := decoder.Token(); !errors.Is(err, io.EOF) {
 		return Identity{}, errors.New("trailing data after identity object")
 	}
-	if identity.Version == 1 && !allowLegacy {
-		return Identity{}, domain.NewError(CodeIdentityMigrationRequired, "version 1 project identity requires explicit migration; run `aboard doctor --fix`", false)
-	}
-	if identity.Version != 1 && identity.Version != CurrentIdentityVersion {
+	if identity.Version != CurrentIdentityVersion && !(allowLegacy && identity.Version == 1) {
 		return Identity{}, fmt.Errorf("unsupported identity version %d", identity.Version)
 	}
 	canonical, err := canonicalProjectID(identity.ProjectID)
@@ -333,65 +436,6 @@ func ValidateProjectName(value string) (string, error) {
 		}
 	}
 	return name, nil
-}
-
-// MigrateIdentity explicitly replaces a valid version 1 identity with version
-// 2. It preserves project_id and touches only .agent-board.json.
-func MigrateIdentity(root, name string) (Identity, error) {
-	canonicalRoot, err := canonicalDirectory(root)
-	if err != nil {
-		return Identity{}, domain.WrapError(err, CodeInvalidIdentity, "cannot locate project root for identity migration", false)
-	}
-	name, err = ValidateProjectName(name)
-	if err != nil {
-		return Identity{}, domain.WrapError(err, CodeInvalidIdentity, "project name is invalid", false)
-	}
-	path := filepath.Join(canonicalRoot, IdentityFileName)
-	info, err := os.Lstat(path)
-	if err != nil || !info.Mode().IsRegular() {
-		if err == nil {
-			err = errors.New("identity path is not a regular file")
-		}
-		return Identity{}, invalidIdentity(err)
-	}
-	old, err := readIdentity(path, true)
-	if err != nil {
-		return Identity{}, err
-	}
-	if old.Version != 1 {
-		return Identity{}, domain.NewError(CodeInvalidIdentity, "only version 1 identities can be migrated", false)
-	}
-	migrated := Identity{Version: CurrentIdentityVersion, ProjectID: old.ProjectID, Name: name}
-	contents, err := json.MarshalIndent(migrated, "", "  ")
-	if err != nil {
-		return Identity{}, err
-	}
-	contents = append(contents, '\n')
-	temporary, err := os.CreateTemp(canonicalRoot, IdentityFileName+".tmp-*")
-	if err != nil {
-		return Identity{}, err
-	}
-	temporaryPath := temporary.Name()
-	defer os.Remove(temporaryPath)
-	if err := temporary.Chmod(info.Mode().Perm()); err != nil {
-		temporary.Close()
-		return Identity{}, err
-	}
-	if _, err := temporary.Write(contents); err != nil {
-		temporary.Close()
-		return Identity{}, err
-	}
-	if err := temporary.Sync(); err != nil {
-		temporary.Close()
-		return Identity{}, err
-	}
-	if err := temporary.Close(); err != nil {
-		return Identity{}, err
-	}
-	if err := os.Rename(temporaryPath, path); err != nil {
-		return Identity{}, err
-	}
-	return migrated, nil
 }
 
 func canonicalProjectID(value string) (string, error) {
@@ -430,14 +474,14 @@ func canonicalDirectory(root string) (string, error) {
 // createIdentityAtomically writes the identity to a temporary file and
 // installs it with a hard link, which (unlike rename) never replaces an
 // existing destination.
-func createIdentityAtomically(root string, identity Identity) error {
+func createIdentityAtomically(path string, identity Identity) error {
 	contents, err := json.MarshalIndent(identity, "", "  ")
 	if err != nil {
 		return err
 	}
 	contents = append(contents, '\n')
 
-	temporary, err := os.CreateTemp(root, IdentityFileName+".tmp-*")
+	temporary, err := os.CreateTemp(filepath.Dir(path), IdentityFileName+".tmp-*")
 	if err != nil {
 		return err
 	}
@@ -455,7 +499,7 @@ func createIdentityAtomically(root string, identity Identity) error {
 	if err := temporary.Close(); err != nil {
 		return err
 	}
-	return os.Link(temporaryPath, filepath.Join(root, IdentityFileName))
+	return os.Link(temporaryPath, path)
 }
 
 func createDirectories(target string) ([]string, error) {

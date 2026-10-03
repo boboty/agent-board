@@ -1,7 +1,7 @@
-// Package workspace locates the current project's Board and opens it. Every
-// worktree of a repository carries the same committed .agent-board.json, so
-// every worktree, harness, and process resolves the same database outside the
-// repository.
+// Package workspace locates the current project's Board and opens it. The
+// project identity lives in the Git common directory, so every worktree,
+// harness, and process of one local repository resolves the same database
+// outside the repository.
 package workspace
 
 import (
@@ -55,7 +55,8 @@ func Open(ctx context.Context, project projectconfig.Project) (*board.Service, e
 	return board.Open(ctx, board.Config{DatabasePath: project.DatabasePath, ProjectID: project.Identity.ProjectID})
 }
 
-// Init creates a new project identity in dir and its Board database.
+// Init creates a new local identity for the Git repository containing dir and
+// its Board database.
 func Init(ctx context.Context, dir string, home, name string) (projectconfig.Project, error) {
 	dataRoot, err := projectconfig.ResolveDataRoot(home)
 	if err != nil {
@@ -80,6 +81,7 @@ func Init(ctx context.Context, dir string, home, name string) (projectconfig.Pro
 // opened Board.
 type Status struct {
 	ProjectRoot    string `json:"project_root"`
+	IdentityPath   string `json:"identity_path"`
 	ProjectName    string `json:"project_name"`
 	ProjectID      string `json:"project_id"`
 	DataDir        string `json:"data_dir"`
@@ -96,6 +98,7 @@ type Status struct {
 func Check(ctx context.Context, project projectconfig.Project) (Status, error) {
 	status := Status{
 		ProjectRoot:  project.Root,
+		IdentityPath: project.IdentityPath,
 		ProjectName:  project.Identity.Name,
 		ProjectID:    project.Identity.ProjectID,
 		DataDir:      project.DataDir,

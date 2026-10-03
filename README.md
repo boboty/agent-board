@@ -145,7 +145,7 @@ aboard doctor
 aboard web
 ```
 
-`aboard init` 会生成 `.agent-board.json`，建议提交进仓库。然后回到你的 AI 工具里，用自然语言说“把 XX 建成工单”即可。
+`aboard init` 需要在 Git 仓库内运行，它把项目身份写入本机 Git common dir（`.git/agent-board.json`），不进入工作树、不提交。同一仓库的所有 worktree 自动共享同一个本地 Board；其他机器上的独立 clone 需要各自 `aboard init`，得到各自的 Board。然后回到你的 AI 工具里，用自然语言说“把 XX 建成工单”即可。
 
 **执行端怎么选**
 

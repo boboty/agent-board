@@ -68,6 +68,7 @@ func newProject(t *testing.T) *project {
 			t.Fatal(err)
 		}
 	}
+	git(t, p.repo, "init", "-q")
 	p.mustRun(p.repo, "init")
 	return p
 }
@@ -78,8 +79,9 @@ func TestCleanConfirmedRemovesOnlyCurrentProject(t *testing.T) {
 	if err := os.Mkdir(otherRepo, 0o755); err != nil {
 		t.Fatal(err)
 	}
+	git(t, otherRepo, "init", "-q")
 	p.mustRun(otherRepo, "init")
-	identityPath := filepath.Join(p.repo, ".agent-board.json")
+	identityPath := filepath.Join(p.repo, ".git", "agent-board.json")
 	var identity struct {
 		ProjectID string `json:"project_id"`
 	}
@@ -89,7 +91,7 @@ func TestCleanConfirmedRemovesOnlyCurrentProject(t *testing.T) {
 	dataDir := filepath.Join(p.home, ".agent-board", identity.ProjectID)
 	otherID := decode[struct {
 		ProjectID string `json:"project_id"`
-	}](t, mustRead(t, filepath.Join(otherRepo, ".agent-board.json"))).ProjectID
+	}](t, mustRead(t, filepath.Join(otherRepo, ".git", "agent-board.json"))).ProjectID
 	otherData := filepath.Join(p.home, ".agent-board", otherID)
 	otherDBPath := filepath.Join(otherData, "board.db")
 	otherDBBefore, err := os.ReadFile(otherDBPath)
@@ -115,7 +117,7 @@ func TestCleanConfirmedRemovesOnlyCurrentProject(t *testing.T) {
 			t.Fatalf("expected removed path %s, stat err %v", removed, err)
 		}
 	}
-	for _, kept := range []string{otherData, filepath.Join(otherRepo, ".agent-board.json"), filepath.Join(p.home, ".agents", "skills", "keep", "SKILL.md"), filepath.Join(p.repo, "project-file.txt"), binary} {
+	for _, kept := range []string{otherData, filepath.Join(otherRepo, ".git", "agent-board.json"), filepath.Join(p.home, ".agents", "skills", "keep", "SKILL.md"), filepath.Join(p.repo, "project-file.txt"), binary} {
 		if _, err := os.Stat(kept); err != nil {
 			t.Fatalf("expected retained path %s: %v", kept, err)
 		}
@@ -140,7 +142,7 @@ func TestCleanDeclinesByDefaultAndOnNo(t *testing.T) {
 		if r.code != 0 || !strings.Contains(r.stdout, "nothing was removed") {
 			t.Fatalf("clean refusal output: %+v", r)
 		}
-		for _, path := range []string{filepath.Join(p.repo, ".agent-board.json"), filepath.Join(p.home, ".agent-board")} {
+		for _, path := range []string{filepath.Join(p.repo, ".git", "agent-board.json"), filepath.Join(p.home, ".agent-board")} {
 			if _, err := os.Stat(path); err != nil {
 				t.Fatalf("refusal changed %s: %v", path, err)
 			}
@@ -375,7 +377,7 @@ func TestUninstallIsConfinedAndReportsActualResults(t *testing.T) {
 
 func TestCleanInteractiveConfirmation(t *testing.T) {
 	p := newProject(t)
-	identityPath := filepath.Join(p.repo, ".agent-board.json")
+	identityPath := filepath.Join(p.repo, ".git", "agent-board.json")
 	identity := decode[struct {
 		ProjectID string `json:"project_id"`
 	}](t, mustRead(t, identityPath))
@@ -394,16 +396,17 @@ func TestCleanInteractiveConfirmation(t *testing.T) {
 
 func TestCleanIdentityRemovalFailureReportsPartialCleanup(t *testing.T) {
 	p := newProject(t)
-	identityPath := filepath.Join(p.repo, ".agent-board.json")
+	identityPath := filepath.Join(p.repo, ".git", "agent-board.json")
 	identity := decode[struct {
 		ProjectID string `json:"project_id"`
 	}](t, mustRead(t, identityPath))
 	dataDir := filepath.Join(p.home, ".agent-board", identity.ProjectID)
-	if err := os.Chmod(p.repo, 0o555); err != nil {
+	gitDir := filepath.Dir(identityPath)
+	if err := os.Chmod(gitDir, 0o555); err != nil {
 		t.Fatal(err)
 	}
 	r := p.run(p.repo, "clean", "--yes")
-	if err := os.Chmod(p.repo, 0o755); err != nil {
+	if err := os.Chmod(gitDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
 	t.Logf("clean identity removal failure: exit=%d stdout=%q stderr=%q", r.code, r.stdout, r.stderr)
@@ -420,7 +423,7 @@ func TestCleanIdentityRemovalFailureReportsPartialCleanup(t *testing.T) {
 
 func TestCleanMissingInvalidIdentityAndDataFailureKeepIdentity(t *testing.T) {
 	p := newProject(t)
-	identityPath := filepath.Join(p.repo, ".agent-board.json")
+	identityPath := filepath.Join(p.repo, ".git", "agent-board.json")
 	projectID := decode[struct {
 		ProjectID string `json:"project_id"`
 	}](t, mustRead(t, identityPath)).ProjectID
@@ -585,15 +588,14 @@ func structured[T any](t *testing.T, result *mcp.CallToolResult) T {
 }
 
 // A CLI process in one git worktree and an MCP server process in another
-// resolve the same database and see each other's writes.
+// resolve the same local identity and database, with nothing committed, and
+// see each other's writes.
 func TestWorktreesAndAdaptersShareOneBoard(t *testing.T) {
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not available")
 	}
 	p := newProject(t)
-	git(t, p.repo, "init", "-q")
-	git(t, p.repo, "add", ".agent-board.json")
-	git(t, p.repo, "commit", "-q", "-m", "identity")
+	git(t, p.repo, "commit", "-q", "--allow-empty", "-m", "base")
 	worktree := filepath.Join(filepath.Dir(p.repo), "worktree")
 	git(t, p.repo, "worktree", "add", "-q", worktree)
 	nested := filepath.Join(worktree, "sub", "dir")
@@ -603,7 +605,7 @@ func TestWorktreesAndAdaptersShareOneBoard(t *testing.T) {
 
 	mainStatus := decode[workspace.Status](t, p.mustRun(p.repo, "check"))
 	worktreeStatus := decode[workspace.Status](t, p.mustRun(nested, "check"))
-	if worktreeStatus.ProjectRoot != worktree || worktreeStatus.DatabasePath != mainStatus.DatabasePath {
+	if worktreeStatus.ProjectRoot != worktree || worktreeStatus.DatabasePath != mainStatus.DatabasePath || worktreeStatus.IdentityPath != mainStatus.IdentityPath {
 		t.Fatalf("main %+v, worktree %+v", mainStatus, worktreeStatus)
 	}
 

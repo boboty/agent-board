@@ -142,7 +142,7 @@ aboard doctor
 aboard web
 ```
 
-`aboard init` creates `.agent-board.json`; commit it to the repository. Then return to your AI tool and say something like “turn XX into a Board Task.”
+`aboard init` must run inside a Git repository. It writes the project identity to this machine's Git common directory (`.git/agent-board.json`), outside the worktree and never committed. Every worktree of the repository shares the same local Board automatically; an independent clone on another machine runs its own `aboard init` and gets its own Board. Then return to your AI tool and say something like “turn XX into a Board Task.”
 
 **Choose an execution setup**
 

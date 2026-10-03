@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"testing"
 
@@ -23,8 +24,32 @@ func generator(t *testing.T) *ids.Generator {
 	return g
 }
 
+func git(t *testing.T, dir string, args ...string) {
+	t.Helper()
+	cmd := exec.Command("git", append([]string{"-c", "user.name=test", "-c", "user.email=test@example.com"}, args...)...)
+	cmd.Dir = dir
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git %v: %v\n%s", args, err, out)
+	}
+}
+
+// gitRepo returns a fresh, symlink-resolved Git repository.
+func gitRepo(t *testing.T) string {
+	t.Helper()
+	repo, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	git(t, repo, "init", "-q")
+	return repo
+}
+
+func localIdentity(repo string) string {
+	return filepath.Join(repo, ".git", projectconfig.IdentityFileName)
+}
+
 func TestInitializeAndDiscover(t *testing.T) {
-	repo, dataRoot := t.TempDir(), t.TempDir()
+	repo, dataRoot := gitRepo(t), t.TempDir()
 	project, err := projectconfig.Initialize(repo, generator(t), dataRoot, "test project")
 	if err != nil {
 		t.Fatal(err)
@@ -36,13 +61,19 @@ func TestInitializeAndDiscover(t *testing.T) {
 	if project.DatabasePath != want {
 		t.Fatalf("DatabasePath = %s, want %s", project.DatabasePath, want)
 	}
+	if project.IdentityPath != localIdentity(repo) {
+		t.Fatalf("IdentityPath = %s", project.IdentityPath)
+	}
+	if _, err := os.Stat(filepath.Join(repo, projectconfig.LegacyIdentityFileName)); !os.IsNotExist(err) {
+		t.Fatal("Initialize wrote an identity into the worktree")
+	}
 
 	nested := filepath.Join(repo, "a", "b")
 	if err := os.MkdirAll(nested, 0o755); err != nil {
 		t.Fatal(err)
 	}
 	found, err := projectconfig.Discover(nested)
-	if err != nil || found.Identity != project.Identity {
+	if err != nil || found.Identity != project.Identity || found.Root != repo {
 		t.Fatalf("Discover() = %+v, %v", found, err)
 	}
 
@@ -52,14 +83,30 @@ func TestInitializeAndDiscover(t *testing.T) {
 	}
 }
 
+func TestInitializeRequiresGitRepository(t *testing.T) {
+	if _, err := projectconfig.Initialize(t.TempDir(), generator(t), t.TempDir(), "x"); !domain.IsCode(err, projectconfig.CodeProjectNotFound) {
+		t.Fatalf("Initialize() outside Git error = %v", err)
+	}
+}
+
 func TestInitializeRejectsDataRootInsideRepository(t *testing.T) {
-	repo := t.TempDir()
+	repo := gitRepo(t)
 	_, err := projectconfig.Initialize(repo, generator(t), filepath.Join(repo, ".board-data"), "test project")
 	if !domain.IsCode(err, domain.CodeStorageConfiguration) {
 		t.Fatalf("Initialize() error = %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(repo, projectconfig.IdentityFileName)); !os.IsNotExist(err) {
+	if _, err := os.Stat(localIdentity(repo)); !os.IsNotExist(err) {
 		t.Fatal("rejected Initialize wrote an identity file")
+	}
+}
+
+func TestInitializeRefusesLegacyIdentity(t *testing.T) {
+	repo := gitRepo(t)
+	if err := os.WriteFile(filepath.Join(repo, projectconfig.LegacyIdentityFileName), []byte(`{"version":2,"project_id":"01M3VN4DT676SGJ90T58JRB13R","name":"x"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := projectconfig.Initialize(repo, generator(t), t.TempDir(), "x"); !domain.IsCode(err, projectconfig.CodeProjectAlreadyInitialized) {
+		t.Fatalf("Initialize() with legacy identity error = %v", err)
 	}
 }
 
@@ -68,19 +115,23 @@ func TestDiscoverRejectsInvalidIdentity(t *testing.T) {
 		"bad id":        `{"version":2,"project_id":"nope","name":"test"}`,
 		"unknown field": `{"version":2,"project_id":"01ARZ3NDEKTSV4RRFFQ69G5FAV","name":"test","x":1}`,
 		"version":       `{"version":3,"project_id":"01ARZ3NDEKTSV4RRFFQ69G5FAV","name":"test"}`,
+		"version 1":     `{"version":1,"project_id":"01ARZ3NDEKTSV4RRFFQ69G5FAV"}`,
 		"missing name":  `{"version":2,"project_id":"01ARZ3NDEKTSV4RRFFQ69G5FAV"}`,
 		"empty name":    `{"version":2,"project_id":"01ARZ3NDEKTSV4RRFFQ69G5FAV","name":"  "}`,
 	} {
-		repo := t.TempDir()
-		if err := os.WriteFile(filepath.Join(repo, projectconfig.IdentityFileName), []byte(contents), 0o600); err != nil {
+		repo := gitRepo(t)
+		if err := os.WriteFile(localIdentity(repo), []byte(contents), 0o600); err != nil {
 			t.Fatal(err)
 		}
 		if _, err := projectconfig.Discover(repo); !domain.IsCode(err, projectconfig.CodeInvalidIdentity) {
 			t.Errorf("%s: error = %v", name, err)
 		}
 	}
-	if _, err := projectconfig.Discover(t.TempDir()); !domain.IsCode(err, projectconfig.CodeProjectNotFound) {
+	if _, err := projectconfig.Discover(gitRepo(t)); !domain.IsCode(err, projectconfig.CodeProjectNotFound) {
 		t.Errorf("missing identity: error = %v", err)
+	}
+	if _, err := projectconfig.Discover(t.TempDir()); !domain.IsCode(err, projectconfig.CodeProjectNotFound) {
+		t.Errorf("outside Git: error = %v", err)
 	}
 }
 
@@ -107,96 +158,91 @@ func TestProjectDatabasePath(t *testing.T) {
 	}
 }
 
-// TestWorktreesShareOneBoard models two worktrees of one repository: each
-// carries the same committed identity file, so both resolve to the same
-// external database and see each other's writes.
-func TestWorktreesShareOneBoard(t *testing.T) {
-	main, dataRoot := t.TempDir(), t.TempDir()
-	project, err := projectconfig.Initialize(main, generator(t), dataRoot, "worktree project")
+// Worktrees share the Git common directory and therefore one identity, with
+// nothing committed. An independent clone gets no identity at all.
+func TestWorktreesShareIdentityAndClonesDoNot(t *testing.T) {
+	repo, dataRoot := gitRepo(t), t.TempDir()
+	git(t, repo, "commit", "-q", "--allow-empty", "-m", "base")
+	project, err := projectconfig.Initialize(repo, generator(t), dataRoot, "worktree project")
 	if err != nil {
 		t.Fatal(err)
 	}
-	identity, err := os.ReadFile(filepath.Join(main, projectconfig.IdentityFileName))
-	if err != nil {
-		t.Fatal(err)
-	}
-	worktree := t.TempDir()
-	if err := os.WriteFile(filepath.Join(worktree, projectconfig.IdentityFileName), identity, 0o600); err != nil {
-		t.Fatal(err)
+	worktree := filepath.Join(filepath.Dir(repo), filepath.Base(repo)+"-wt")
+	git(t, repo, "worktree", "add", "-q", worktree)
+	t.Cleanup(func() { os.RemoveAll(worktree) })
+	found, err := projectconfig.Discover(worktree)
+	if err != nil || found.Identity != project.Identity || found.IdentityPath != project.IdentityPath {
+		t.Fatalf("worktree Discover() = %+v, %v", found, err)
 	}
 
-	open := func(dir string) *board.Service {
-		found, err := projectconfig.Discover(dir)
-		if err != nil {
-			t.Fatal(err)
-		}
-		path, err := projectconfig.ProjectDatabasePath(dataRoot, found.Identity.ProjectID)
-		if err != nil {
-			t.Fatal(err)
-		}
-		s, err := board.Open(context.Background(), board.Config{DatabasePath: path, ProjectID: found.Identity.ProjectID})
-		if err != nil {
-			t.Fatal(err)
-		}
-		t.Cleanup(func() { _ = s.Close(context.Background()) })
-		return s
-	}
-	fromMain, fromWorktree := open(main), open(worktree)
-	created, err := fromMain.CreateTask(context.Background(), board.CreateTaskInput{Actor: "orchestrator", Title: "shared"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got, err := fromWorktree.GetTask(context.Background(), created.ID); err != nil || got.Title != "shared" {
-		t.Fatalf("worktree view = %+v, %v (db %s)", got, err, project.DatabasePath)
+	clone := filepath.Join(t.TempDir(), "clone")
+	git(t, repo, "clone", "-q", repo, clone)
+	if _, err := projectconfig.Discover(clone); !domain.IsCode(err, projectconfig.CodeProjectNotFound) {
+		t.Fatalf("clone Discover() error = %v", err)
 	}
 }
 
-func TestVersionOneRequiresExplicitMigration(t *testing.T) {
-	root, dataRoot := t.TempDir(), t.TempDir()
-	const id = "01M3VN4DT676SGJ90T58JRB13R"
-	identityPath := filepath.Join(root, projectconfig.IdentityFileName)
-	legacy := []byte(`{"version":1,"project_id":"` + id + `"}`)
-	if err := os.WriteFile(identityPath, legacy, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := projectconfig.Discover(root); !domain.IsCode(err, projectconfig.CodeIdentityMigrationRequired) {
-		t.Fatalf("Discover v1 error = %v", err)
-	}
-	inspected, err := projectconfig.Inspect(root)
-	if err != nil || inspected.Identity.Version != 1 || inspected.Identity.ProjectID != id {
-		t.Fatalf("Inspect v1 = %+v, %v", inspected, err)
-	}
-	dataDir := filepath.Join(dataRoot, id)
-	if err := os.MkdirAll(dataDir, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	db, err := board.Open(context.Background(), board.Config{DatabasePath: filepath.Join(dataDir, "board.db"), ProjectID: id})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := db.Close(context.Background()); err != nil {
-		t.Fatal(err)
-	}
-	migrated, err := projectconfig.MigrateIdentity(root, "Readable name")
-	if err != nil || migrated.Version != 2 || migrated.ProjectID != id || migrated.Name != "Readable name" {
-		t.Fatalf("MigrateIdentity = %+v, %v", migrated, err)
-	}
-	found, err := projectconfig.Discover(root)
-	if err != nil || found.Identity != migrated {
-		t.Fatalf("Discover migrated = %+v, %v", found, err)
-	}
-	if _, err := os.Stat(filepath.Join(dataDir, "board.db")); err != nil {
-		t.Fatalf("migration changed Board data: %v", err)
+func TestLegacyIdentityRequiresExplicitMigration(t *testing.T) {
+	for _, test := range []struct {
+		name, contents, migrationName, wantName string
+	}{
+		{"version 1", `{"version":1,"project_id":"01M3VN4DT676SGJ90T58JRB13R"}`, "Readable name", "Readable name"},
+		{"version 2 keeps name", `{"version":2,"project_id":"01M3VN4DT676SGJ90T58JRB13R","name":"Tracked"}`, "", "Tracked"},
+		{"version 2 renamed", `{"version":2,"project_id":"01M3VN4DT676SGJ90T58JRB13R","name":"Tracked"}`, "Renamed", "Renamed"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			const id = "01M3VN4DT676SGJ90T58JRB13R"
+			root, dataRoot := gitRepo(t), t.TempDir()
+			legacyPath := filepath.Join(root, projectconfig.LegacyIdentityFileName)
+			if err := os.WriteFile(legacyPath, []byte(test.contents), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := projectconfig.Discover(root); !domain.IsCode(err, projectconfig.CodeIdentityMigrationRequired) {
+				t.Fatalf("Discover legacy error = %v", err)
+			}
+			inspected, err := projectconfig.Inspect(root)
+			if err != nil || !inspected.Legacy || inspected.LegacyPath != legacyPath || inspected.Identity.ProjectID != id {
+				t.Fatalf("Inspect legacy = %+v, %v", inspected, err)
+			}
+			dataDir := filepath.Join(dataRoot, id)
+			if err := os.MkdirAll(dataDir, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			db, err := board.Open(context.Background(), board.Config{DatabasePath: filepath.Join(dataDir, "board.db"), ProjectID: id})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := db.Close(context.Background()); err != nil {
+				t.Fatal(err)
+			}
+			migrated, err := projectconfig.MigrateLegacy(inspected, test.migrationName)
+			if err != nil || migrated.Legacy || migrated.Identity.Version != 2 || migrated.Identity.ProjectID != id || migrated.Identity.Name != test.wantName {
+				t.Fatalf("MigrateLegacy = %+v, %v", migrated, err)
+			}
+			found, err := projectconfig.Discover(root)
+			if err != nil || found.Identity != migrated.Identity || found.LegacyPath != legacyPath {
+				t.Fatalf("Discover migrated = %+v, %v", found, err)
+			}
+			if contents, err := os.ReadFile(legacyPath); err != nil || string(contents) != test.contents {
+				t.Fatalf("migration changed the legacy file: %q, %v", contents, err)
+			}
+			if _, err := os.Stat(filepath.Join(dataDir, "board.db")); err != nil {
+				t.Fatalf("migration changed Board data: %v", err)
+			}
+			if _, err := projectconfig.MigrateLegacy(inspected, test.migrationName); !domain.IsCode(err, projectconfig.CodeProjectAlreadyInitialized) {
+				t.Fatalf("second MigrateLegacy error = %v", err)
+			}
+		})
 	}
 }
 
 func TestInitializeRejectsInvalidName(t *testing.T) {
 	for _, name := range []string{"", " \t ", "bad\nname"} {
-		repo := t.TempDir()
+		repo := gitRepo(t)
 		if _, err := projectconfig.Initialize(repo, generator(t), t.TempDir(), name); !domain.IsCode(err, projectconfig.CodeInitializationFailed) {
 			t.Errorf("Initialize(%q) error = %v", name, err)
 		}
-		if _, err := os.Stat(filepath.Join(repo, projectconfig.IdentityFileName)); !os.IsNotExist(err) {
+		if _, err := os.Stat(localIdentity(repo)); !os.IsNotExist(err) {
 			t.Errorf("Initialize(%q) wrote identity", name)
 		}
 	}

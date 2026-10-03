@@ -99,7 +99,7 @@ The thin store should preserve the useful engineering discipline learned from th
 - idempotency keys for retryable writes
 - mutation + audit event in one transaction
 - READY reorder in one transaction
-- a shared DB location outside individual worktrees
+- a shared DB location outside individual worktrees (`~/.agent-board/<project_id>/board.db`), keyed by a local project identity stored in the Git common directory, so all worktrees of one local repository share it and independent clones do not
 
 Selective infrastructure porting from the POC is allowed. Rhizome workflow semantics are not.
 

@@ -39,6 +39,7 @@ func TestInitThenLocateFromNestedDirectory(t *testing.T) {
 	ctx := context.Background()
 	home := testHome(t)
 	repo := realDir(t, t.TempDir())
+	git(t, repo, "init", "-q")
 
 	created, err := Init(ctx, repo, home, filepath.Base(repo))
 	if err != nil {
@@ -85,14 +86,15 @@ func TestLocateWithoutIdentity(t *testing.T) {
 	}
 }
 
-// A fresh clone on a new machine has the committed identity but no data
-// directory. Check reports that without creating anything; Open creates it.
-func TestFreshCloneCreatesDatabaseOnOpen(t *testing.T) {
+// A local identity whose data directory is missing (e.g. after the data was
+// removed) is reported by Check without creating anything; Open creates it.
+func TestMissingDataDirectoryCreatedOnOpen(t *testing.T) {
 	ctx := context.Background()
 	home := testHome(t)
 	clone := t.TempDir()
+	git(t, clone, "init", "-q")
 	identity := `{"version": 2, "project_id": "01M3VN4DT676SGJ90T58JRB13R", "name": "fixture"}`
-	if err := os.WriteFile(filepath.Join(clone, projectconfig.IdentityFileName), []byte(identity), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(clone, ".git", projectconfig.IdentityFileName), []byte(identity), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	project, err := Locate(clone, home)
@@ -120,8 +122,8 @@ func TestFreshCloneCreatesDatabaseOnOpen(t *testing.T) {
 	}
 }
 
-// Two git worktrees of one repository share the committed identity and so
-// resolve, open, and see one Board.
+// Two git worktrees of one repository share the identity in the Git common
+// directory, with nothing committed, and so resolve, open, and see one Board.
 func TestWorktreesShareOneBoard(t *testing.T) {
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not available")
@@ -138,8 +140,7 @@ func TestWorktreesShareOneBoard(t *testing.T) {
 	if _, err := Init(ctx, repo, home, filepath.Base(repo)); err != nil {
 		t.Fatal(err)
 	}
-	git(t, repo, "add", projectconfig.IdentityFileName)
-	git(t, repo, "commit", "-q", "-m", "identity")
+	git(t, repo, "commit", "-q", "--allow-empty", "-m", "base")
 	git(t, repo, "worktree", "add", "-q", worktree)
 
 	main, err := Locate(repo, home)
