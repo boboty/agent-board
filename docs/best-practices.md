@@ -83,3 +83,9 @@ Agent Board 的目标之一，就是让任务事实不依赖任何单一会话�
 如果原 Orchestrator 会话能够 suspend/resume，优先恢复原会话；即使原会话丢失，也应能由新的 Orchestrator 通过 Board facts、Workspace/Git 和 Agent activity 恢复工作。
 
 因此，Orchestrator 常驻是运行时便利，不应成为流程正确性的前提。
+
+## 2. Self-hosting Board 的升级顺序
+
+以下是 #27 self-hosting 实际验证得到的操作经验，属于非强制最佳实践。Agent Board 的候选版本尚未独立验收前，不要升级承载自身研发流程的真实 Board。数据库 migration 先在临时数据库或真实数据库副本验证；候选版本通过独立验收、accepted commit 已生成并完成合入或 push 后，再升级本机 binary、Skill、schema 和 Web。升级控制面前先备份；升级后检查 SQLite integrity、foreign keys 和数据一致性，并重启 Board 服务。
+
+注意：当前 `aboard check` 打开数据库时会执行待办 migration，因此 schema 开发期间不要把它当作纯只读诊断命令。

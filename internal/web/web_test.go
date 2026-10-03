@@ -525,6 +525,15 @@ func TestFactsNeverChangeTaskState(t *testing.T) {
 		form.values.Set("kind", string(kind))
 		form.values.Set("body", "fact "+string(kind)+" PASS DONE")
 		form.values.Set("data", `{"verdict": "PASS", "state": "DONE"}`)
+		if kind == domain.FactDelivery {
+			form.values.Set("baseline", "base")
+			form.values.Set("fingerprint", "fingerprint")
+		}
+		if kind == domain.FactVerification {
+			form.values.Set("baseline", "base")
+			form.values.Set("fingerprint", "fingerprint")
+			form.values.Set("verdict", "PASS")
+		}
 		form.values.Set("role", "worker")
 		form.values.Set("session", "web-session")
 		form.values.Set("harness", "codex")
@@ -566,7 +575,7 @@ func TestDrawerShowsFactsAndHistory(t *testing.T) {
 	f.queue(f.create("detail"))
 	ctx := context.Background()
 	if _, err := f.ops.RecordFact(ctx, ops.RecordFactArgs{Write: ops.Write{Actor: "dev-agent"}, Task: "1", Kind: domain.FactDelivery,
-		Body: "commit abc123", Data: []byte(`{"commit":"abc123"}`)}); err != nil {
+		Body: "commit abc123", Data: []byte(`{"commit":"abc123"}`), Baseline: webPtr("base-commit"), Fingerprint: webPtr("fingerprint-hash"), AcceptedCommit: webPtr("accepted-sha")}); err != nil {
 		t.Fatal(err)
 	}
 	page := f.get("/?task=1")
@@ -591,12 +600,13 @@ func TestLatestFactsUseCompactSummariesAndKeepFullFacts(t *testing.T) {
 	ctx := context.Background()
 	longBody := strings.Repeat("Delivery detail remains in the fact history. ", 8) + "full-body-tail-marker"
 	for _, fact := range []domain.TaskFact{
-		{Kind: domain.FactDelivery, Actor: "developer", Body: longBody, Data: []byte(`{"commit":"bacd250","files":10}`), Provenance: &domain.FactProvenance{Role: "worker", Session: "delivery-session", Harness: "codex", Model: "gpt-6"}},
-		{Kind: domain.FactVerification, Actor: "verifier", Body: "PASS · fingerprint unchanged", Data: []byte(`{"verdict":"PASS","round":"r2"}`)},
+		{Kind: domain.FactDelivery, Actor: "developer", Body: longBody, Data: []byte(`{"commit":"bacd250","files":10}`), Baseline: webPtr("base-commit"), Fingerprint: webPtr("fingerprint-hash"), AcceptedCommit: webPtr("accepted-sha"), Provenance: &domain.FactProvenance{Role: "worker", Session: "delivery-session", Harness: "codex", Model: "gpt-6"}},
+		{Kind: domain.FactVerification, Actor: "verifier", Body: "PASS · fingerprint unchanged", Data: []byte(`{"round":"r2"}`), Verdict: webPtr("PASS"), Baseline: webPtr("base-commit"), Fingerprint: webPtr("fingerprint-hash")},
 		{Kind: domain.FactDecision, Actor: "human", Body: "Accepted without verifier PASS", Data: []byte(`{"decision":"accept","reason":"reviewed in person"}`)},
 	} {
 		if _, err := f.ops.RecordFact(ctx, ops.RecordFactArgs{Write: ops.Write{Actor: fact.Actor}, Task: "1", Kind: fact.Kind,
-			Body: fact.Body, Data: fact.Data, Provenance: fact.Provenance}); err != nil {
+			Body: fact.Body, Data: fact.Data, Baseline: fact.Baseline, Fingerprint: fact.Fingerprint,
+			AcceptedCommit: fact.AcceptedCommit, Verdict: fact.Verdict, Provenance: fact.Provenance}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -611,7 +621,7 @@ func TestLatestFactsUseCompactSummariesAndKeepFullFacts(t *testing.T) {
 	}
 	keyFacts := page.body[keyStart:factsStart]
 	factHistory := page.body[factsStart:]
-	for _, want := range []string{`data-key-fact-kind="delivery"`, "developer", "bacd250", "files 10", `data-key-fact-kind="verification"`, "verifier", "PASS", "fingerprint unchanged", `data-key-fact-kind="decision"`, "human", "decision accept"} {
+	for _, want := range []string{`data-key-fact-kind="delivery"`, "developer", "base-commit", "fingerprint-hash", "accepted-sha", "files 10", `data-key-fact-kind="verification"`, "verifier", "verdict PASS", `data-key-fact-kind="decision"`, "human", "decision accept"} {
 		if !strings.Contains(keyFacts, want) {
 			t.Errorf("key facts missing %q", want)
 		}
@@ -619,7 +629,7 @@ func TestLatestFactsUseCompactSummariesAndKeepFullFacts(t *testing.T) {
 	if strings.Contains(keyFacts, "full-body-tail-marker") {
 		t.Fatal("key fact summary contains the full long body")
 	}
-	for _, want := range []string{longBody, "PASS · fingerprint unchanged", "delivery-session", "未记录来源信息"} {
+	for _, want := range []string{longBody, "PASS · fingerprint unchanged", "delivery-session", "未记录来源信息", "baseline=base-commit", "fingerprint=fingerprint-hash", "accepted_commit=accepted-sha"} {
 		if !strings.Contains(factHistory, want) {
 			t.Errorf("full fact history missing %q", want)
 		}
@@ -774,3 +784,5 @@ func TestDrawerShowsReadyRankOnlyForReady(t *testing.T) {
 		}
 	}
 }
+
+func webPtr(value string) *string { return &value }

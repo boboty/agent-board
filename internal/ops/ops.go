@@ -206,11 +206,15 @@ func (s *Service) ReorderReady(ctx context.Context, args ReorderReadyArgs) (doma
 // RecordFactArgs appends a fact.
 type RecordFactArgs struct {
 	Write
-	Task       string                 `json:"task" jsonschema:"Task ID (ULID) or task number."`
-	Kind       domain.FactKind        `json:"kind" jsonschema:"Fact kind."`
-	Body       string                 `json:"body" jsonschema:"Human-readable fact content; must not be blank."`
-	Data       json.RawMessage        `json:"data,omitempty" jsonschema:"Optional JSON object stored verbatim; the Board does not interpret it."`
-	Provenance *domain.FactProvenance `json:"provenance,omitempty" jsonschema:"Optional self-reported role, session, harness, and model; descriptive only, never authenticated or authorized."`
+	Task           string                 `json:"task" jsonschema:"Task ID (ULID) or task number."`
+	Kind           domain.FactKind        `json:"kind" jsonschema:"Fact kind."`
+	Body           string                 `json:"body" jsonschema:"Human-readable fact content; must not be blank."`
+	Data           json.RawMessage        `json:"data,omitempty" jsonschema:"Optional JSON object stored verbatim; the Board does not interpret it."`
+	Baseline       *string                `json:"baseline,omitempty" jsonschema:"Required for delivery and verification facts; delivery baseline commit or verification target baseline."`
+	Fingerprint    *string                `json:"fingerprint,omitempty" jsonschema:"Required for delivery and verification facts; identifies the delivered workspace."`
+	AcceptedCommit *string                `json:"accepted_commit,omitempty" jsonschema:"Optional accepted commit for delivery facts."`
+	Verdict        *string                `json:"verdict,omitempty" jsonschema:"Required for verification facts; PASS, RC, or BLOCKED."`
+	Provenance     *domain.FactProvenance `json:"provenance,omitempty" jsonschema:"Optional self-reported role, session, harness, and model; descriptive only, never authenticated or authorized."`
 }
 
 // RecordFact appends an immutable fact. It never changes task state.
@@ -222,6 +226,10 @@ func (s *Service) RecordFact(ctx context.Context, args RecordFactArgs) (FactResu
 		Kind:           args.Kind,
 		Body:           args.Body,
 		Data:           args.Data,
+		Baseline:       args.Baseline,
+		Fingerprint:    args.Fingerprint,
+		AcceptedCommit: args.AcceptedCommit,
+		Verdict:        args.Verdict,
 		Provenance:     args.Provenance,
 	})
 	return FactResult{fact}, err

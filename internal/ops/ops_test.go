@@ -94,6 +94,12 @@ func TestInputSchemas(t *testing.T) {
 	if typ := schemas["record_fact"].InputSchema.Properties["data"].Type; typ != "object" {
 		t.Errorf("record_fact data type %q", typ)
 	}
+	for _, field := range []string{"baseline", "fingerprint", "accepted_commit", "verdict"} {
+		encoded, _ := json.Marshal(schemas["record_fact"].InputSchema.Properties[field])
+		if !strings.Contains(string(encoded), `"string"`) {
+			t.Errorf("record_fact %s schema %s", field, encoded)
+		}
+	}
 	kinds := schemas["record_fact"].InputSchema.Properties["kind"].Enum
 	if len(kinds) != len(domain.FactKinds) || !slices.Contains(kinds, any(string(domain.FactDecision))) {
 		t.Errorf("record_fact kind enum %v", kinds)
@@ -107,6 +113,7 @@ func TestCallRejectsMalformedArguments(t *testing.T) {
 		{"wrong type", "get_task", `{"task":12}`},
 		{"trailing data", "list_ready", `{} {}`},
 		{"not an object", "list_tasks", `[]`},
+		{"wrong core field type", "record_fact", `{"task":"1","kind":"delivery","body":"x","baseline":false,"fingerprint":"hash"}`},
 		{"unknown operation", "start_task", `{}`},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -202,7 +209,7 @@ func TestCallRunsEveryOperation(t *testing.T) {
 		{"list_ready", `{}`},
 		{"reorder_ready", `{"expected_version":3,"tasks":["2","1"]}`},
 		{"set_task_state", `{"task":"1","expected_version":3,"state":"BLOCKED","reason":"waiting"}`},
-		{"record_fact", `{"task":"1","kind":"delivery","body":"context","data":{"branch":"x"},"provenance":{"role":"worker","session":"ops-session","harness":"codex","model":"gpt-6"}}`},
+		{"record_fact", `{"task":"1","kind":"delivery","body":"context","data":{"branch":"x"},"baseline":"base","fingerprint":"fingerprint","provenance":{"role":"worker","session":"ops-session","harness":"codex","model":"gpt-6"}}`},
 		{"list_facts", `{"task":"1","kind":"delivery"}`},
 		{"list_tasks", `{"states":["BLOCKED"],"queued":true}`},
 		{"list_events", `{"task":"1","limit":2}`},
@@ -226,6 +233,9 @@ func TestCallRunsEveryOperation(t *testing.T) {
 	listed := facts.(FactsResult).Facts
 	if len(listed) != 1 || listed[0].Provenance == nil || listed[0].Provenance.Role != "worker" || listed[0].Provenance.Session != "ops-session" {
 		t.Fatalf("fact provenance through ops API: %+v", listed)
+	}
+	if listed[0].Baseline == nil || *listed[0].Baseline != "base" || listed[0].Fingerprint == nil || *listed[0].Fingerprint != "fingerprint" {
+		t.Fatalf("structured delivery semantics through ops API: %+v", listed)
 	}
 	task, err := call(t, s, "get_task", `{"task":"1"}`)
 	if err != nil {

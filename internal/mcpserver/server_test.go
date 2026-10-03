@@ -130,7 +130,7 @@ func TestToolCallsReachTheBoard(t *testing.T) {
 	if *started.State != domain.StateInProgress {
 		t.Fatalf("started %+v", started)
 	}
-	callTool(t, session, "record_fact", map[string]any{"task": "1", "kind": "delivery", "body": "done", "data": map[string]any{"commit": "abc"}, "provenance": map[string]any{"role": "worker", "session": "session-1", "harness": "codex", "model": "gpt-6"}})
+	callTool(t, session, "record_fact", map[string]any{"task": "1", "kind": "delivery", "body": "done", "data": map[string]any{"commit": "abc"}, "baseline": "base", "fingerprint": "fingerprint", "provenance": map[string]any{"role": "worker", "session": "session-1", "harness": "codex", "model": "gpt-6"}})
 	callTool(t, session, "record_fact", map[string]any{"task": "1", "kind": "decision", "body": "Human accepts without verifier PASS", "data": map[string]any{"decision": "accept"}})
 	facts := decode[ops.FactsResult](t, callTool(t, session, "list_facts", map[string]any{"task": "1"})).Facts
 	if len(facts) != 2 || string(facts[0].Data) != `{"commit":"abc"}` || facts[1].Kind != domain.FactDecision {
@@ -138,6 +138,9 @@ func TestToolCallsReachTheBoard(t *testing.T) {
 	}
 	if facts[0].Provenance == nil || facts[0].Provenance.Session != "session-1" || facts[0].Provenance.Role != "worker" || facts[1].Provenance != nil {
 		t.Fatalf("fact provenance %+v", facts)
+	}
+	if facts[0].Baseline == nil || *facts[0].Baseline != "base" || facts[0].Fingerprint == nil || *facts[0].Fingerprint != "fingerprint" {
+		t.Fatalf("structured delivery semantics via MCP %+v", facts[0])
 	}
 	// Recording a fact changes nothing about the task.
 	after := decode[ops.TaskResult](t, callTool(t, session, "get_task", map[string]any{"task": "1"})).Task

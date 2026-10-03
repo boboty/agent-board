@@ -26,17 +26,22 @@ var taskStoreSQL string
 //go:embed 002_fact_provenance.sql
 var factProvenanceSQL string
 
+//go:embed 003_fact_core_semantics.sql
+var factCoreSemanticsSQL string
+
 // Tests verify each checksum against the exact embedded SQL bytes, so an
 // applied migration cannot be edited silently. After an intentional edit to an
 // unreleased migration, regenerate with: shasum -a 256 migrations/<file>.sql
 const taskStoreChecksum = "ecb944e2435bab2898ba1ddf3f5237e797e3083ed39603c2d09e47bafa66a248"
 const factProvenanceChecksum = "19f4131425448287df516ded1b833cb3c9a00906cd8a26d5cacd216ee936e681"
+const factCoreSemanticsChecksum = "f265ffcf4c2f44807205cec3b9fc924378c5c7f7220ffe0a9dccd5adba6077be"
 
 var (
 	migrationNamePattern = regexp.MustCompile(`^[a-z][a-z0-9]*(?:_[a-z0-9]+)+$`)
 	embeddedCatalog      = []migration{
 		{version: 1, name: "task_store", checksum: taskStoreChecksum, sql: taskStoreSQL},
 		{version: 2, name: "fact_provenance", checksum: factProvenanceChecksum, sql: factProvenanceSQL},
+		{version: 3, name: "fact_core_semantics", checksum: factCoreSemanticsChecksum, sql: factCoreSemanticsSQL},
 	}
 )
 

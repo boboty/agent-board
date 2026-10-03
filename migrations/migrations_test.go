@@ -50,7 +50,7 @@ func TestMigrateIsIdempotent(t *testing.T) {
 	}
 }
 
-func TestFactProvenanceMigrationKeepsLegacyFactsWithoutInference(t *testing.T) {
+func TestFactMigrationsKeepLegacyFactsWithoutInference(t *testing.T) {
 	path, db := openDB(t)
 	if result, err := run(context.Background(), db, clock.NewFakeClock(migrationTime), embeddedCatalog[:1]); err != nil || result.Version != 1 {
 		t.Fatalf("initial migration = %+v, %v", result, err)
@@ -72,8 +72,8 @@ func TestFactProvenanceMigrationKeepsLegacyFactsWithoutInference(t *testing.T) {
 		VALUES (?, ?, 'execution', 'worker/codex session=old', '{"session":"legacy-data"}', 'worker/codex', ?)`, "01234567890123456789012347", "01234567890123456789012346", created); err != nil {
 		t.Fatal(err)
 	}
-	if result, err := Migrate(context.Background(), db, clock.NewFakeClock(migrationTime)); err != nil || result.Version != 2 || result.Applied != 1 {
-		t.Fatalf("provenance migration = %+v, %v", result, err)
+	if result, err := Migrate(context.Background(), db, clock.NewFakeClock(migrationTime)); err != nil || result.Version != 3 || result.Applied != 2 {
+		t.Fatalf("fact migrations = %+v, %v", result, err)
 	}
 	var kind, body, actor string
 	var data, role, session, harness, model sql.NullString
@@ -82,6 +82,13 @@ func TestFactProvenanceMigrationKeepsLegacyFactsWithoutInference(t *testing.T) {
 	}
 	if kind != "execution" || body != "worker/codex session=old" || actor != "worker/codex" || !data.Valid || role.Valid || session.Valid || harness.Valid || model.Valid {
 		t.Fatalf("legacy fact changed or provenance inferred: kind=%q body=%q actor=%q data=%v provenance=%v/%v/%v/%v", kind, body, actor, data, role, session, harness, model)
+	}
+	var baseline, fingerprint, acceptedCommit, verdict sql.NullString
+	if err := inspect.QueryRow(`SELECT baseline, fingerprint, accepted_commit, verdict FROM task_facts WHERE id = ?`, "01234567890123456789012347").Scan(&baseline, &fingerprint, &acceptedCommit, &verdict); err != nil {
+		t.Fatal(err)
+	}
+	if baseline.Valid || fingerprint.Valid || acceptedCommit.Valid || verdict.Valid {
+		t.Fatalf("legacy core semantics inferred: %v/%v/%v/%v", baseline, fingerprint, acceptedCommit, verdict)
 	}
 }
 

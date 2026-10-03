@@ -232,6 +232,12 @@
             </select>
           </label>
           <label>{{$T.FactBody}}<textarea name="body" rows="3" required></textarea></label>
+          <fieldset class="board-fieldset"><legend>{{$T.FactCoreFields}}</legend>
+            <label>{{$T.FactBaseline}}<input name="baseline" type="text"></label>
+            <label>{{$T.FactFingerprint}}<input name="fingerprint" type="text"></label>
+            <label>{{$T.FactAcceptedCommit}}<input name="accepted_commit" type="text"></label>
+            <label>{{$T.FactVerdict}}<select name="verdict"><option value=""></option><option>PASS</option><option>RC</option><option>BLOCKED</option></select></label>
+          </fieldset>
           <label>{{$T.FactDataField}}<textarea name="data" rows="2" class="mono" placeholder="{&quot;commit&quot;: &quot;abc123&quot;}"></textarea></label>
           <fieldset class="board-fieldset"><legend>{{$T.FactProvenance}}</legend>
             <label>{{$T.FactProvRole}}<input name="role" type="text"></label>
@@ -273,6 +279,7 @@
 {{$T := .T}}
 <div class="fact" data-fact-kind="{{.Fact.Kind}}">
   <div class="fact-head"><span class="fact-kind fact-kind-{{.Fact.Kind}}">{{kindLabel .Fact.Kind}}</span><span class="fact-meta">{{.Fact.Actor}} · {{time .Fact.CreatedAt}}</span></div>
+  {{if or .Fact.Baseline .Fact.Fingerprint .Fact.AcceptedCommit .Fact.Verdict}}<p class="fact-provenance" data-fact-core-semantics>{{with .Fact.Verdict}}verdict={{.}} · {{end}}{{with .Fact.Baseline}}baseline={{.}} · {{end}}{{with .Fact.Fingerprint}}fingerprint={{.}} · {{end}}{{with .Fact.AcceptedCommit}}accepted_commit={{.}}{{end}}</p>{{end}}
   <div class="prose">{{.Fact.Body}}</div>
   {{with .Fact.Provenance}}<p class="fact-provenance" data-fact-provenance>{{$T.FactProvenance}} · {{with .Role}}{{$T.FactProvRole}}={{.}} · {{end}}{{with .Session}}{{$T.FactProvSession}}={{.}} · {{end}}{{with .Harness}}{{$T.FactProvHarness}}={{.}} · {{end}}{{with .Model}}{{$T.FactProvModel}}={{.}}{{end}}</p>{{else}}<p class="fact-provenance" data-fact-provenance>{{$T.FactProvMissing}}</p>{{end}}
   {{if .Fact.Data}}<details class="fact-data"><summary>{{.T.FactData}}</summary><pre>{{pretty .Fact.Data}}</pre></details>{{end}}
