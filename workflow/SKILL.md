@@ -76,6 +76,16 @@ Judges a delivery independently and returns `PASS`, `RC`, or `BLOCKED` with evid
 - **New** means each verification round gets a fresh Verifier. A Verifier never re-verifies a delivery it has already ruled on.
 - **Read-only** means it does not change code, tests, Task content, or project documents, and does not commit. Running checks that write only local, untracked artifacts is fine.
 
+#### Verification resources
+
+The Orchestrator and Verifier keep the verification run's temporary resources identifiable by exact path and owner. This includes any temporary clone or worktree, test database, build or test output, log, or download created for that run. Use a run-specific location; do not search `/tmp` or remove paths whose ownership is uncertain.
+
+Before removing a resource, save the evidence needed to understand the verdict to a durable location, such as a persistent run log. The Verifier removes the disposable resources it created, checks that the delivery fingerprint is unchanged, then records and returns the verdict with the cleanup outcome. Cleanup must not modify the delivered workspace or its baseline/fingerprint. Keep the Worker's workspace available for RC correction and for the Orchestrator's PASS packaging. Remove a temporary Git worktree with `git worktree remove` so Git's worktree metadata is updated; do not substitute directory deletion.
+
+Apply the same cleanup responsibility to `PASS`, `RC`, and `BLOCKED`. For `RC`, retain the shared delivery workspace while removing only the Verifier's disposable resources. For `BLOCKED`, retain a resource only when it is needed to resume; record its exact path, why it must remain, who owns cleanup, and what event or condition will trigger it. Report cleanup failures with the affected paths and errors; do not describe cleanup as complete when it failed.
+
+If the Verifier is interrupted, times out, or exits before cleanup, the Orchestrator records the known resource paths in the handoff context. It confirms the old Verifier can no longer write before removing anything. If that cannot be confirmed, leave the resources in place and resume cleanup only after write authority is resolved. Then remove only the recorded, run-owned resources, preserve any needed evidence first, and report any cleanup failure. An interrupted verification has no verdict. If cleanup changes the delivery fingerprint, stop: the evaluation has no valid verdict and a fresh Independent Verifier must check the changed delivery.
+
 ### Role separation
 
 One session holds one role for a given Task. The Worker and the Verifier of a Task are never the same session, and neither is the Orchestrator. One harness may host several roles as separate sessions.

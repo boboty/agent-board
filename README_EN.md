@@ -54,6 +54,8 @@ The Worker's delivery notes are **claims to verify**, not evidence to trust by d
 
 These values are verification verdicts, not additional Task states, and they do not automatically move the Task.
 
+At the end of verification, the Verifier preserves needed evidence before removing disposable resources created for that run. After an interruption, the Orchestrator resumes cleanup only after confirming the old Verifier has stopped. The shared delivery workspace remains available for RC correction or PASS packaging.
+
 A Human may explicitly accept a delivery without Verifier `PASS`. That is recorded as a `decision`, never represented as a verification result.
 
 ![Task detail: delivery, independent verification, and fact history](docs/images/task-detail.webp)
