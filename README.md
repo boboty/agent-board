@@ -54,6 +54,8 @@ Agent Board 首先是一套 **AI 研发工作制度**：规定什么工作值得
 
 `PASS / RC / BLOCKED` 是 verification verdict，不是额外的工单状态，也不会自动改变工单状态。
 
+验收结束时，验收者先保存必要证据，再清理本轮创建且不再需要的临时资源。中断后的清理由调度者在确认原验收者已停止后接续；共享交付工作区保留给 RC 修正或 PASS 后的收口。
+
 人（Human）也可以明确接受一份没有独立验收者 `PASS` 的交付，但这会记录为 `decision`，而不是伪装成 `PASS`。
 
 ![工单详情：交付、独立验收、事实历史](docs/images/task-detail.webp)
