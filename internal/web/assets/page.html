@@ -278,17 +278,23 @@
 {{define "fact"}}
 {{$T := .T}}
 <div class="fact" data-fact-kind="{{.Fact.Kind}}">
-  <div class="fact-head"><span class="fact-kind fact-kind-{{.Fact.Kind}}">{{kindLabel .Fact.Kind}}</span><span class="fact-meta">{{.Fact.Actor}} · {{time .Fact.CreatedAt}}</span></div>
+  <div class="fact-head"><span class="fact-kind fact-kind-{{.Fact.Kind}}">{{kindLabel .Fact.Kind}}</span><span class="fact-meta">{{$T.ActorLabel}} {{.Fact.Actor}} · {{time .Fact.CreatedAt}}</span></div>
   {{if or .Fact.Baseline .Fact.Fingerprint .Fact.AcceptedCommit .Fact.Verdict}}<p class="fact-provenance" data-fact-core-semantics>{{with .Fact.Verdict}}verdict={{.}} · {{end}}{{with .Fact.Baseline}}baseline={{.}} · {{end}}{{with .Fact.Fingerprint}}fingerprint={{.}} · {{end}}{{with .Fact.AcceptedCommit}}accepted_commit={{.}}{{end}}</p>{{end}}
   <div class="prose">{{.Fact.Body}}</div>
-  {{with .Fact.Provenance}}<p class="fact-provenance" data-fact-provenance>{{$T.FactProvenance}} · {{with .Role}}{{$T.FactProvRole}}={{.}} · {{end}}{{with .Session}}{{$T.FactProvSession}}={{.}} · {{end}}{{with .Harness}}{{$T.FactProvHarness}}={{.}} · {{end}}{{with .Model}}{{$T.FactProvModel}}={{.}}{{end}}</p>{{else}}<p class="fact-provenance" data-fact-provenance>{{$T.FactProvMissing}}</p>{{end}}
+  {{template "factProvenance" .}}
   {{if .Fact.Data}}<details class="fact-data"><summary>{{.T.FactData}}</summary><pre>{{pretty .Fact.Data}}</pre></details>{{end}}
 </div>
 {{end}}
 
 {{define "keyFact"}}
 <div class="key-fact" data-key-fact-kind="{{.Fact.Kind}}">
-  <div class="fact-head"><span class="fact-kind fact-kind-{{.Fact.Kind}}">{{kindLabel .Fact.Kind}}</span><span class="fact-meta">{{.Fact.Actor}} · {{time .Fact.CreatedAt}}</span></div>
+  <div class="fact-head"><span class="fact-kind fact-kind-{{.Fact.Kind}}">{{kindLabel .Fact.Kind}}</span><span class="fact-meta">{{.T.ActorLabel}} {{.Fact.Actor}} · {{time .Fact.CreatedAt}}</span></div>
+  {{template "factProvenance" .}}
   {{with factSummary .Fact}}<p class="fact-summary">{{.}}</p>{{end}}
 </div>
+{{end}}
+
+{{define "factProvenance"}}
+{{$T := .T}}
+{{with .Fact.Provenance}}{{if or .Role .Session .Harness .Model}}<p class="fact-provenance" data-fact-provenance>{{$T.FactProvenance}} · {{with .Role}}{{$T.FactProvRole}}={{.}} · {{end}}{{with .Session}}{{$T.FactProvSession}}={{.}} · {{end}}{{with .Harness}}{{$T.FactProvHarness}}={{.}} · {{end}}{{with .Model}}{{$T.FactProvModel}}={{.}}{{end}}</p>{{end}}{{end}}
 {{end}}

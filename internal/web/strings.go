@@ -93,7 +93,6 @@ type UIStrings struct {
 	FactProvSession    string
 	FactProvHarness    string
 	FactProvModel      string
-	FactProvMissing    string
 	SubmitFact         string
 
 	Notices      map[string]string
@@ -113,7 +112,7 @@ var zhCN = UIStrings{
 	BoardSubtitle: "AI 研发任务看板",
 	NewTask:       "+ 新建任务",
 	ProjectLabel:  "项目",
-	ActorLabel:    "操作者",
+	ActorLabel:    "记录者",
 
 	Columns: map[domain.State]string{
 		domain.StateReady:      "待开始",
@@ -167,7 +166,7 @@ var zhCN = UIStrings{
 		domain.FactNote:         "备注",
 	},
 	Facts:     "事实记录",
-	FactsHint: "事实只追加记录，不会改变任务状态。",
+	FactsHint: "事实只追加记录，不会改变任务状态。记录者是写入事实的人或代理；来源信息描述实际来源，代为记录时两者可以不同。",
 	NoFacts:   "暂无事实记录",
 	FactData:  "结构化数据",
 	Events:    "事件历史",
@@ -183,7 +182,7 @@ var zhCN = UIStrings{
 	EventsLimit: "仅显示最早的 1000 条事件，完整历史请用 CLI：aboard events --task",
 	EventTime:   "时间",
 	EventType:   "事件",
-	EventActor:  "操作者",
+	EventActor:  "记录者",
 	EventVer:    "版本",
 	EventDetail: "内容",
 
@@ -212,7 +211,6 @@ var zhCN = UIStrings{
 	FactProvSession:    "会话",
 	FactProvHarness:    "Harness",
 	FactProvModel:      "模型",
-	FactProvMissing:    "未记录来源信息",
 	SubmitFact:         "记录",
 
 	Notices: map[string]string{
@@ -242,7 +240,7 @@ var zhCN = UIStrings{
 		"state":            "状态",
 		"expected_version": "版本",
 		"tasks":            "READY 排序",
-		"actor":            "操作者",
+		"actor":            "记录者",
 		"arguments":        "表单字段",
 	},
 	FieldPrefix: "（字段：",

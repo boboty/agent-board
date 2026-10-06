@@ -629,13 +629,82 @@ func TestLatestFactsUseCompactSummariesAndKeepFullFacts(t *testing.T) {
 	if strings.Contains(keyFacts, "full-body-tail-marker") {
 		t.Fatal("key fact summary contains the full long body")
 	}
-	for _, want := range []string{longBody, "PASS · fingerprint unchanged", "delivery-session", "未记录来源信息", "baseline=base-commit", "fingerprint=fingerprint-hash", "accepted_commit=accepted-sha"} {
+	for _, want := range []string{longBody, "PASS · fingerprint unchanged", "delivery-session", "baseline=base-commit", "fingerprint=fingerprint-hash", "accepted_commit=accepted-sha"} {
 		if !strings.Contains(factHistory, want) {
 			t.Errorf("full fact history missing %q", want)
 		}
 	}
 	if !strings.Contains(page.body, `data-event="fact_recorded"`) {
 		t.Fatal("fact audit history is missing")
+	}
+}
+
+func TestFactRecorderAndSourceDisplay(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		kind       domain.FactKind
+		provenance *domain.FactProvenance
+		wantSource []string
+	}{
+		{"worker delivery by orchestrator", domain.FactDelivery, &domain.FactProvenance{Role: "worker", Session: "worker-session", Harness: "codex", Model: "gpt-6"}, []string{"角色=worker", "会话=worker-session", "Harness=codex", "模型=gpt-6"}},
+		{"verifier verdict by orchestrator", domain.FactVerification, &domain.FactProvenance{Role: "verifier", Session: "verifier-session"}, []string{"角色=verifier", "会话=verifier-session"}},
+		{"partial source", domain.FactExecution, &domain.FactProvenance{Model: "source-model"}, []string{"模型=source-model"}},
+		{"note without source", domain.FactNote, nil, nil},
+		{"decision without source", domain.FactDecision, nil, nil},
+		{"historical delivery without source", domain.FactDelivery, nil, nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newFixture(t)
+			f.create("fact display")
+			args := ops.RecordFactArgs{
+				Write: ops.Write{Actor: "orchestrator/codex"}, Task: "1", Kind: tc.kind,
+				Body: "worker/codex session=body-session", Data: []byte(`{"role":"worker","session":"data-session"}`), Provenance: tc.provenance,
+			}
+			if tc.kind == domain.FactDelivery || tc.kind == domain.FactVerification {
+				args.Baseline, args.Fingerprint = webPtr("base"), webPtr("fingerprint")
+			}
+			if tc.kind == domain.FactVerification {
+				args.Verdict = webPtr("PASS")
+			}
+			if _, err := f.ops.RecordFact(context.Background(), args); err != nil {
+				t.Fatal(err)
+			}
+			page := f.get("/?task=1")
+			if page.status != http.StatusOK {
+				t.Fatalf("status %d", page.status)
+			}
+			// Inspect each rendered record, including the latest-fact summary.
+			records := regexp.MustCompile(`(?s)<div class="(?:key-fact|fact)" .*?\n</div>`).FindAllString(page.body, -1)
+			wantRecords := 2
+			if tc.kind == domain.FactNote {
+				wantRecords = 1
+			}
+			if len(records) != wantRecords {
+				t.Fatalf("rendered %d records, want %d", len(records), wantRecords)
+			}
+			for _, record := range records {
+				if !strings.Contains(record, "记录者 orchestrator/codex") {
+					t.Errorf("recorder label missing: %s", record)
+				}
+				if len(tc.wantSource) == 0 {
+					if strings.Contains(record, "data-fact-provenance") {
+						t.Errorf("missing source should be hidden, not inferred: %s", record)
+					}
+					continue
+				}
+				for _, want := range append([]string{"来源信息", "data-fact-provenance"}, tc.wantSource...) {
+					if !strings.Contains(record, want) {
+						t.Errorf("source missing %q: %s", want, record)
+					}
+				}
+				if strings.Contains(record, "角色=orchestrator") {
+					t.Error("recorder must not replace the source role")
+				}
+			}
+			if strings.Contains(page.body, "未记录来源信息") {
+				t.Error("missing source must not look like an error")
+			}
+		})
 	}
 }
 
