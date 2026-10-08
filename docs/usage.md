@@ -1,5 +1,7 @@
 # Agent Board 日常使用
 
+首次安装请优先使用 [让 Agent 安装](install-with-agent.md)。本页提供安装后的日常操作入口；首次跑通 Worker → Independent Verifier → DONE 的分步提示也在[安装与首次使用指南](install-with-agent.md#首次跑通一个-task)中。
+
 ## 两个 Skill
 
 ```bash

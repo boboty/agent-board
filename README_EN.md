@@ -132,7 +132,24 @@ If a team can carry the same protocol entirely in GitHub or another system, that
 | Direct agent access | Files or harness APIs | API + authentication | CLI / MCP |
 | Runtime dependency | None | Remote service | Local binary + SQLite |
 
-## Start in five minutes
+## Recommended: install with your agent
+
+Copy the instructions below into Codex, Claude Code, or OpenCode. The agent will confirm the current OS, harness, and target Git repository, choose an available existing installation route, and report each installation and diagnostic result. The CLI is enough to get started; MCP is optional.
+
+```text
+Follow Agent Board's “Install with your agent” guide for this environment:
+https://github.com/boboty/agent-board/blob/main/docs/install-with-agent_EN.md
+
+First confirm the current OS/architecture, the harness you are running in, and the Git repository path I want initialized. Do not scan unrelated projects or modify other harness configurations. Choose the suitable existing prebuilt release or Go installation route from the guide. If a prerequisite is missing, this environment is unsupported, or `aboard` is not on PATH after installation, stop and report what succeeded, what failed and why, and the next step. Do not describe a partial setup as complete.
+
+Install both the management and workflow Skills and check their status. If existing Skill content differs, preserve it and report the difference; do not overwrite it with `--force` without my explicit authorization. Run `aboard init` only in the Git repository I confirm, then run `aboard doctor`. Finish with the aboard version and path, actual status of both Skills, project initialization status, doctor result, unresolved issues, and how I can define a Task. Do not create or queue a Task, execute work, commit, push, merge, or release on my behalf.
+```
+
+See [Install with your agent](docs/install-with-agent_EN.md) for the complete steps, failure handling, and first-use guide. After installation, continue with [everyday use and the first Worker → Independent Verifier cycle](docs/usage_EN.md).
+
+## Manual installation (fallback)
+
+If you are not using an agent, install manually as follows.
 
 ### Download a release binary
 

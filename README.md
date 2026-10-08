@@ -132,7 +132,24 @@ GitHub Issues、PR、CI 和 Code Review 非常适合代码托管平台内的协�
 | AI 直接读写 | 文件或工具内部能力 | API + 鉴权 | CLI / MCP |
 | 运行依赖 | 无 | 远端服务 | 本地 binary + SQLite |
 
-## 5 分钟开始
+## 首选：让你的 Agent 安装
+
+把下面这段说明复制到 Codex、Claude Code 或 OpenCode。它会先确认当前系统、Harness 和目标 Git 仓库，再选择可用的既有安装方式；安装和诊断结果会逐项报告。首次使用只需要 CLI，MCP 是可选项。
+
+```text
+请按 Agent Board 仓库的“Install with your agent”说明，为当前环境安装并验证 aboard：
+https://github.com/boboty/agent-board/blob/main/docs/install-with-agent.md
+
+先确认当前操作系统/架构、你当前运行的 Harness，以及我希望初始化的 Git 仓库路径。不要扫描无关项目或修改其他 Harness 配置。按说明选择适合此环境的预编译版本或 Go 安装；若缺少前提、当前环境不支持，或安装后 `aboard` 不在 PATH 中，请停止并报告已完成部分、原因和下一步，不要把部分成功说成安装完成。
+
+安装 management 与 workflow 两个 Skills，检查安装状态；如果现有 Skill 内容不同，保留并报告，不要擅自用 `--force` 覆盖。只在我确认的目标 Git 仓库中运行 `aboard init`，随后运行 `aboard doctor`。最后汇总 aboard 版本及路径、两个 Skills 的实际安装状态、目标项目初始化状态、doctor 结果和任何未解决问题，并告诉我如何开始定义一个 Task。不要替我创建或入队 Task，也不要执行任务、提交、push、merge 或 release。
+```
+
+完整安装步骤、失败处理和首次使用指引见 [Install with your agent](docs/install-with-agent.md)。安装后可继续阅读[日常使用与首个 Worker → Independent Verifier 闭环](docs/usage.md)。
+
+## 手工安装（备用入口）
+
+如果暂时不使用 Agent，可按以下方式安装。
 
 ### 下载预编译版本
 
