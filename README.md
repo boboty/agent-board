@@ -145,7 +145,7 @@ https://github.com/boboty/agent-board/blob/main/docs/install-with-agent.md
 安装 management 与 workflow 两个 Skills，检查安装状态；如果现有 Skill 内容不同，保留并报告，不要擅自用 `--force` 覆盖。只在我确认的目标 Git 仓库中运行 `aboard init`，随后运行 `aboard doctor`。最后汇总 aboard 版本及路径、两个 Skills 的实际安装状态、目标项目初始化状态、doctor 结果和任何未解决问题，并告诉我如何开始定义一个 Task。不要替我创建或入队 Task，也不要执行任务、提交、push、merge 或 release。
 ```
 
-完整安装步骤、失败处理和首次使用指引见 [Install with your agent](docs/install-with-agent.md)。安装后可继续阅读[日常使用与首个 Worker → Independent Verifier 闭环](docs/usage.md)。
+完整安装步骤与失败处理见 [Install with your agent](docs/install-with-agent.md)。安装后按[首次跑通一个 Task](docs/first-task.md)走一次 Worker → Independent Verifier → DONE 闭环，日常操作见[日常使用](docs/usage.md)。
 
 ## 手工安装（备用入口）
 
@@ -217,6 +217,7 @@ Agent Board 不是把人从研发里拿掉，而是把人的注意力从盯执�
 ## 更多
 
 - [工作流规则：完整规范](workflow/SKILL.md)
+- [首次跑通一个 Task](docs/first-task.md)
 - [日常使用：CLI / MCP / Skills](docs/usage.md)
 - [最佳实践：Harness 与调度运行方式](docs/best-practices.md)
 - [升级、清理、卸载](docs/operations.md)

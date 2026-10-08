@@ -1,6 +1,6 @@
 # Everyday Agent Board usage
 
-For a first install, start with [Install with your agent](install-with-agent_EN.md). This page covers everyday operations; the step-by-step first Worker → Independent Verifier → DONE prompts are in the [installation and first-use guide](install-with-agent_EN.md#complete-your-first-task).
+For a first install, start with [Install with your agent](install-with-agent_EN.md). This page covers everyday operations; for a step-by-step first Worker → Independent Verifier → DONE walkthrough, see [Complete your first Task](first-task_EN.md).
 
 ## Two Skills
 

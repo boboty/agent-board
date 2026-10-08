@@ -145,7 +145,7 @@ First confirm the current OS/architecture, the harness you are running in, and t
 Install both the management and workflow Skills and check their status. If existing Skill content differs, preserve it and report the difference; do not overwrite it with `--force` without my explicit authorization. Run `aboard init` only in the Git repository I confirm, then run `aboard doctor`. Finish with the aboard version and path, actual status of both Skills, project initialization status, doctor result, unresolved issues, and how I can define a Task. Do not create or queue a Task, execute work, commit, push, merge, or release on my behalf.
 ```
 
-See [Install with your agent](docs/install-with-agent_EN.md) for the complete steps, failure handling, and first-use guide. After installation, continue with [everyday use and the first Worker → Independent Verifier cycle](docs/usage_EN.md).
+See [Install with your agent](docs/install-with-agent_EN.md) for the complete steps and failure handling. After installation, follow [Complete your first Task](docs/first-task_EN.md) for one Worker → Independent Verifier → DONE cycle; see [Everyday use](docs/usage_EN.md) for common operations.
 
 ## Manual installation (fallback)
 
@@ -219,6 +219,7 @@ Agent Board is not about removing Humans from software delivery. It is about mov
 ## More
 
 - [Workflow Skill: full rules](workflow/SKILL.md)
+- [Complete your first Task](docs/first-task_EN.md)
 - [Everyday use: CLI / MCP / Skills](docs/usage_EN.md)
 - [Upgrade, clean, uninstall](docs/operations_EN.md)
 - [PRODUCT.md](PRODUCT.md) — product definition and boundaries
