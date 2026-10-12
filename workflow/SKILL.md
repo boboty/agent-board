@@ -164,7 +164,7 @@ Facts are append-only and never change state. Write the body for a reader who ha
 |---|---|---|
 | `execution` | which role was launched or replaced, and where | provenance: `role`, `session`, `harness`, `model`; `worktree`, `branch`, `baseline` in `data` |
 | `delivery` | what changed; checks run with raw results; what was not verified and why; limitations; known out-of-scope findings. After PASS, explain that the accepted commit holds exactly the verified content | structured fields: `baseline`, `fingerprint`, optional `accepted_commit`; useful `data`: `branch`, checks and other evidence; provenance: `role`, `session`, `harness`, `model` |
-| `verification` | evidence per acceptance criterion; what was not verified and why; for RC each issue with evidence; for BLOCKED what stops verification | structured fields: `verdict` (`PASS`/`RC`/`BLOCKED`), `baseline`, `fingerprint`; useful `data`: round and other evidence; provenance: `role`, `session`, `harness`, `model` |
+| `verification` | judgment per acceptance criterion; distinguish checks run this round from reused evidence, with source references and applicability reasons; what was not verified and why; for RC each issue with evidence; for BLOCKED what stops verification | structured fields: current `verdict` (`PASS`/`RC`/`BLOCKED`), `baseline`, `fingerprint`; useful `data`: round, rerun checks, evidence references and reuse reasons; provenance: `role`, `session`, `harness`, `model` |
 | `decision` | a Human decision, including explicit acceptance when no Verifier PASS is recorded | `decision` (for example `accept`), `reason` |
 | `handoff` | what is done, what remains, workspace state, what the next person must check first, where the agent activity is | provenance: `role`, `session`, `harness`, `model`; `worktree`, `branch`, `baseline`, `checkpoint` |
 | `note` | a clarification, a reason, or context that is not a Human decision | — |
@@ -217,7 +217,7 @@ Before launching a Verifier, the Orchestrator confirms:
 - no other writer can touch the workspace;
 - the workspace still matches the delivered fingerprint.
 
-The Orchestrator then launches a **new** Independent Verifier with the Task, its acceptance criteria, the complete diff from the baseline, and the actual workspace. It records an `execution` fact with the available provenance. The Verifier forms its own verification from those inputs. Worker delivery notes are claims and evidence to check against the workspace, not the preset frame for verification.
+The Orchestrator then launches a **new** Independent Verifier with the Task, its acceptance criteria, the complete diff from the baseline, and the actual workspace. After RC, it also provides the prior delivery and verification facts, durable evidence, and the changes from the prior delivery to the current one. It records an `execution` fact with the available provenance. The Verifier forms its own verification from those inputs. Worker delivery notes are claims and evidence to check against the workspace, not the preset frame for verification.
 
 The Verifier:
 
@@ -226,10 +226,23 @@ The Verifier:
 - checks each acceptance criterion against the full diff from the baseline and the related code, not only the Worker's summary;
 - follows the real business path through code and tests. It judges whether mocks, hand-built data, or same-source assumptions bypass the core risk. It runs checks itself when the evidence is not enough, including real API/UI/database checks when they apply;
 - looks for missed edge cases, errors, logging, secrets, and changes outside the Task's scope;
-- may read earlier verification facts, but verifies the whole Task again rather than only the previous RC items;
+- independently judges **all** acceptance criteria each round. First verification obtains the minimum sufficient evidence for all criteria. After RC, it reviews the complete baseline diff and related code as well as the delivery-to-delivery changes, then applies [evidence reuse](#evidence-reuse-after-rc). Complete independent judgment does not mean repeating every check, and the prior RC list is not the acceptance boundary;
 - returns a verdict with its evidence and limitations, and records it as a `verification` fact.
 
 Passing tests do not by themselves mean PASS. Any relevant check that failed or was skipped is named, its impact assessed, and judged against the Task.
+
+#### Evidence reuse after RC
+
+Reuse evidence, **not a prior verdict**. The current Verifier decides whether each source remains sufficient for the current delivery; it never inherits PASS or an earlier criterion judgment.
+
+Before reusing a check, including a high-cost check, the Verifier:
+
+1. Reads the source verification fact and its durable evidence (raw result or other inspectable artifact), identifies the covered criteria and check scope, and checks who produced it and how. A reference to a verdict alone is not evidence.
+2. Compares the source delivery's baseline and fingerprint with the current delivery's structured baseline and fingerprint, using the recorded fingerprint method and identifiable delivery contents. Missing or untraceable identity is not guessed. Reviews both the complete baseline diff and the changes between deliveries, including related code and shared dependencies.
+3. Checks the relevant environment and data against those used for the source check, and assesses changed behavior, indirect impact, and newly discovered risks. Reuses only unaffected, still trustworthy and valid evidence; explains why it covers the current criterion. A different current fingerprint alone does not require rerunning everything.
+4. Reruns or supplements the necessary checks for any criterion that code or dependency changes could affect, evidence that is invalid or insufficient, relevant environment/data changes, or new risks — even if the criterion was not a prior RC issue. Cost is not a reason to reuse invalid evidence. If sufficient evidence cannot be obtained, use the existing RC or BLOCKED semantics, never relax the criterion to PASS.
+
+The current `verification` fact records the judgment for every criterion, separately lists checks executed this round with raw results and reused evidence with source Fact/artifact references, prior and current delivery identities, applicability reasons, and unverified items and limitations. Put these details in `body`/`data`; current verdict, baseline, and fingerprint remain in the existing structured fields. Preserve durable evidence before resource cleanup as above. Final PASS binds only the current delivery, with the fingerprint unchanged at verification start, end, and after cleanup.
 
 ### 4. Verifier PASS → DONE
 
@@ -257,7 +270,7 @@ An RC verdict means the delivery does not meet the Task, but it can be fixed wit
 1. The Task stays `IN_PROGRESS`. Nothing changes on the Board except the `verification` fact.
 2. The Orchestrator gives the RC issues and evidence to the current Worker, or to a replacement (see [Interruption and takeover](#interruption-and-takeover)).
 3. The Worker corrects in the same uncommitted workspace, self-checks, and records a new `delivery` fact with the new fingerprint.
-4. The Orchestrator launches a **new** Independent Verifier. No conclusion from before the correction carries over.
+4. The Orchestrator launches a **new** Independent Verifier for the new delivery. No conclusion from before the correction carries over; evidence may be reused only after this Verifier independently checks its applicability, judges every criterion, and forms its own current verdict as in section 3.
 
 If the rounds stop converging, stop for decision. Signs of this: the same issue keeps returning, the Worker and Verifier disagree about what the criteria require, or a fix would need a definition change. The Orchestrator does not overrule a Verifier, and it does not record DONE over an open RC.
 
@@ -332,5 +345,6 @@ The Orchestrator then takes the next READY Task only if the current run authoriz
 - Nothing depends on a particular harness, model, or product.
 - Internal todos are not Board Tasks.
 - Worker self-checks never stand in for Independent Verification; every verification round, including after RC, uses a new Verifier.
+- Every round independently judges all criteria from the full baseline diff; after RC, reuse only traceable, unaffected, valid evidence, not prior conclusions. Rerun necessary checks when impact, invalid evidence, environment/data changes, or new risks demand it.
 - No required progress file, and no implementation commit before PASS.
 - New rules answer observed failures, not hypothetical ones.

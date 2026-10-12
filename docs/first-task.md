@@ -130,7 +130,7 @@ Worker 的自检不等于 PASS；delivery fact 记录的是交付，不是验收
 Orchestrator 确认 Worker 已停止写入且重算 fingerprint 与 delivery fact 相同后，启动一个全新、与 Worker 和 Orchestrator 都不同的会话。启动提示要包含 `TASK_REF`、`BOARD_DIR`、`WORKTREE`、`BRANCH`、`BASELINE`、delivery fact 的 `FINGERPRINT`，本指南路径 `docs/first-task.md`，以及下面的 fingerprint 函数完整代码块；shell 变量和函数不会跨会话传递，Verifier 在自己的会话中重新赋值并复制完全相同的函数。每次新启动 Verifier（包括 RC 后的复验）都记录 execution fact；session、harness、model 取自这次新会话的启动结果。不要让 Worker 代写 verdict。
 
 ```text
-你是此 Task 的新 Independent Verifier。只读检查 Task 定义、完整验收标准、基线到当前工作区的全部 diff（包括未跟踪文件）和 Worker 的 delivery fingerprint；使用 Orchestrator 随本提示提供的 fingerprint 函数复算，并在结论前再次复算。自行运行相关检查并保留原始证据。不要修改工作区、Task、Skill 或文档，不要提交。按每条验收标准给出证据和限制，只由你依据证据决定并记录 PASS、RC 或 BLOCKED；不要因 Worker 自检通过而预设 PASS。在你的 shell 中重新定义 `docs/first-task.md` 所附的完整 `fingerprint()` 函数。
+你是此 Task 的新 Independent Verifier。只读检查 Task 定义、完整验收标准、基线到当前工作区的全部 diff（包括未跟踪文件）、相关代码和 Worker 的 delivery fingerprint；使用 Orchestrator 随本提示提供的 fingerprint 函数复算，并在结论前及资源清理后再次复算。首次验收取得全部标准的最小充分证据；RC 后还要审查前后交付变化，按照 workflow/SKILL.md 的证据复用规则核对前轮 Fact / 持久证据的来源、范围、baseline / fingerprint、环境、数据和影响。自行执行必要检查并保留原始证据；只复用未受影响且仍有效的证据，说明理由，不继承前轮结论，不仅检查 RC 项。不要修改工作区、Task、Skill 或文档，不要提交。按每条验收标准给出本轮检查、复用证据及依据、未验证项和限制，只由你依据充分证据决定并记录 PASS、RC 或 BLOCKED；不要因 Worker 自检通过而预设 PASS。在你的 shell 中重新定义 `docs/first-task.md` 所附的完整 `fingerprint()` 函数。
 ```
 
 每个新 Verifier 会话启动后，由 Orchestrator 写 execution fact。前六个变量从 `task get` 和 Worker facts 获取，`VERIFIER_SESSION`、`VERIFIER_HARNESS`、`VERIFIER_MODEL` 来自这次新会话启动结果：
@@ -148,7 +148,7 @@ VERIFIER_MODEL="<本次新 Verifier 启动结果中的 model>"
 aboard fact record "$TASK_REF" --kind execution --body "Started Independent Verifier in $WORKTREE on $BRANCH for delivery $FINGERPRINT." --data "{\"worktree\":\"$WORKTREE\",\"branch\":\"$BRANCH\",\"baseline\":\"$BASELINE\",\"fingerprint\":\"$FINGERPRINT\"}" --role verifier --session "$VERIFIER_SESSION" --harness "$VERIFIER_HARNESS" --model "$VERIFIER_MODEL" --dir "$BOARD_DIR" --actor "$ORCH_ACTOR" --key "task-${TASK_REF}-verifier-execution-${VERIFIER_SESSION}"
 ```
 
-Verifier 自行确定 `VERDICT` 为 `PASS`、`RC` 或 `BLOCKED` 后，由这个 Verifier 会话记录 verification fact。其结构化字段必须包含 verdict、baseline、fingerprint，provenance 必须来自当前 Verifier 会话：
+Verifier 自行确定 `VERDICT` 为 `PASS`、`RC` 或 `BLOCKED` 后，由这个 Verifier 会话记录 verification fact。其结构化字段必须包含当前 verdict、baseline、fingerprint，provenance 必须来自当前 Verifier 会话。body/data 按标准区分本轮重新执行的检查与复用证据，引用前轮 Fact / 持久证据及前后交付身份，说明适用依据、未验证项及限制。可复核的记录示例见 [RC 场景](rc-evidence-examples.md)：
 
 ```bash
 VERIFIER_ACTOR="verifier/<本 Verifier 的追溯标签>"

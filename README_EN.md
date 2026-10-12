@@ -44,7 +44,9 @@ The Worker manages its own internal plan. When it is done, it leaves a stable wo
 
 ### 3. A fresh Independent Verifier checks that delivery
 
-The Independent Verifier evaluates the acceptance criteria, the full diff, and checks it runs itself.
+A fresh, read-only Independent Verifier reviews the complete diff from the Task baseline and related code each round, judges every acceptance criterion, and forms its own verdict. First verification obtains the minimum sufficient evidence covering all criteria.
+
+After RC, complete independent judgment does not mean repeating every check. The Verifier may reuse unaffected, still trustworthy and valid evidence, including high-cost checks, after checking the prior Fact / durable evidence's source, coverage, prior and current baseline / fingerprint, environment, data, and change impact; it explains why that evidence still applies to the current delivery. Criteria potentially affected by code or shared dependencies, invalid or insufficient evidence, relevant environment or data changes, and new risks require necessary reruns or supplementary checks. Insufficient evidence cannot yield `PASS`; neither the prior RC list nor an earlier verdict replaces independent judgment.
 
 The Worker's delivery notes are **claims to verify**, not evidence to trust by default.
 
@@ -71,7 +73,7 @@ The result is more useful than “the agent says it is done”:
 3. **A delivery needs evidence and identity.** “Done” is not a result. The Worker records what changed, the baseline, checks performed, known gaps, and which concrete result is being delivered.
 4. **The producer does not approve the work.** A Worker may self-check but cannot declare `PASS`. Formal verification comes from a fresh, independent session or instance and is based on the acceptance criteria, full diff, and the Verifier's own checks.
 5. **Verification and Human acceptance are different facts.** `PASS` belongs to the Independent Verifier. A Human can accept a non-PASS delivery, but that choice is recorded as a `decision`.
-6. **Rework stays with the Task.** `RC` returns to the same Task and delivery boundary. The correction produces a new delivery and a fresh Independent Verifier checks it again.
+6. **Rework stays with the Task.** `RC` returns to the same Task and delivery boundary. Each correction produces a new delivery and fingerprint; a fresh Independent Verifier judges all criteria again, rerunning checks according to impact or reusing evidence after checking applicability. The verification fact distinguishes current checks from reused evidence, sources, and reasons. `PASS` binds only the current baseline / fingerprint, unchanged at verification start, end, and after cleanup.
 7. **Shared state does not live in one agent's memory.** On interruption or takeover, recover from the Task and Board facts, Workspace/Git, and relevant agent activity. Handoff facts fill context gaps; they do not create a second progress system.
 
 The Orchestrator coordinates execution and recovery but does not implement the Task or independently verify it. The Worker executes and delivers. The Independent Verifier does not modify the delivery; it verifies and records a verdict.
@@ -220,6 +222,7 @@ Agent Board is not about removing Humans from software delivery. It is about mov
 
 - [Workflow Skill: full rules](workflow/SKILL.md)
 - [Complete your first Task](docs/first-task_EN.md)
+- [RC delta verification: re-checkable scenarios](docs/rc-evidence-examples.md)
 - [Everyday use: CLI / MCP / Skills](docs/usage_EN.md)
 - [Upgrade, clean, uninstall](docs/operations_EN.md)
 - [PRODUCT.md](PRODUCT.md) — product definition and boundaries
