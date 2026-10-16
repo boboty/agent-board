@@ -14,7 +14,7 @@ Agent Board 是一套面向 AI 辅助软件研发的任务协作与交付验收�
 
 在 Codex、Claude Code、OpenCode 等工具中复制：
 
-> 请按照 [Agent Board 安装说明](docs/install-with-agent.md)，为我指定的 Git 仓库安装并验证 Agent Board。先确认操作系统、当前 Harness 和目标仓库；安装 `management`、`workflow` 两个 Skills，已有内容不同不得擅自覆盖；只在目标仓库执行 `aboard init` 和 `aboard doctor`。逐项报告成功、失败及阻塞情况。在我确认前不要创建或入队 Task，也不要执行、提交或推送任务。
+> 请按照 https://github.com/boboty/agent-board/blob/main/docs/install-with-agent.md ，为我指定的 Git 仓库安装并验证 Agent Board。先确认操作系统、当前 Harness 和目标仓库；安装 `management`、`workflow` 两个 Skills，已有内容不同不得擅自覆盖；只在目标仓库执行 `aboard init` 和 `aboard doctor`。逐项报告成功、失败及阻塞情况。在我确认前不要创建或入队 Task，也不要执行、提交或推送任务。
 
 完整步骤见[让 Agent 安装](docs/install-with-agent.md)。
 
