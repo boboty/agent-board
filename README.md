@@ -14,7 +14,7 @@ Agent Board is a lightweight work protocol for AI-assisted software development.
 
 In Codex, Claude Code, OpenCode, or another agent, paste:
 
-> Install and verify Agent Board for a Git repository I will specify. Follow the [install-with-agent instructions](docs/install-with-agent_EN.md). First confirm the OS, harness, and target repository. Install the `management` and `workflow` skills without overwriting modified copies, run `aboard init` and `aboard doctor` in that repository only, and report what worked or failed. Do not create or queue a Task, run agents, or push changes until I ask.
+> Install and verify Agent Board for a Git repository I will specify. Follow the installation guide at https://github.com/boboty/agent-board/blob/main/docs/install-with-agent_EN.md. First confirm the OS, harness, and target repository. Install the `management` and `workflow` skills without overwriting modified copies, run `aboard init` and `aboard doctor` in that repository only, and report what worked or failed. Do not create or queue a Task, run agents, or push changes until I ask.
 
 Prefer step-by-step instructions? See [Install with your agent](docs/install-with-agent_EN.md).
 
