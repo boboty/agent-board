@@ -1,231 +1,104 @@
-# Agent Board · AI 研发工单制
+# Agent Board · Accountable AI software delivery
 
-[中文](README.md) | [English](README_EN.md)
+[English](README.md) | [简体中文](README.zh-CN.md)
 
-**让交给 AI 的每一项工作，都有明确责任、有证据交付、有独立验收、有记录可追溯。**
+**Clear tasks. Identifiable deliveries. Independent verification. A record you can come back to.**
 
-Agent Board 首先是一套 **AI 研发工作制度**：规定什么工作值得成为工单、谁承担执行、什么算交付、谁可以独立验收，以及中断、返工和人的裁决如何留下可恢复、可查询的事实。
+Agent Board is a lightweight work protocol for AI-assisted software development. It defines what an agent has been asked to deliver, how to hand work off, and how a result is independently checked before acceptance.
 
-`aboard` 是这套制度的本地参考实现。它不管理智能体内部怎么思考，而保存那些必须跨智能体、跨会话、跨工作树留下来的任务事实。
+`aboard` is the local reference implementation: a shared task ledger that works across Codex, Claude Code, OpenCode, other harnesses, and separate agent sessions. It is **not** another coding agent or scheduler.
 
-## 为什么需要一套“制度”
+## Quick start
 
-模型越来越擅长规划、拆解、自检和管理自己的上下文。这些内部步骤可以继续留在 Codex、Claude Code、OpenCode 或其他执行工具里。
+### 1. Install with your agent (recommended)
 
-但一旦多个 AI 智能体跨会话、跨工作树（worktree）、跨工具协作，真正麻烦的问题变成了：
+In Codex, Claude Code, OpenCode, or another agent, paste:
 
-- 这项工作到底是什么，什么才算完成？
-- 现在谁在做？中断以后谁可以接手？
-- AI 说“做完了”，凭什么接受？
-- 验收者检查的是不是执行者最后交付的那一份结果？
-- 做的人能不能自己宣布验收通过？
-- 退回修改以后改了什么，谁重新验证？
-- 两周后回头看，当时交付了什么、谁验的、为什么放行？
+> Install and verify Agent Board for a Git repository I will specify. Follow the [install-with-agent instructions](docs/install-with-agent_EN.md). First confirm the OS, harness, and target repository. Install the `management` and `workflow` skills without overwriting modified copies, run `aboard init` and `aboard doctor` in that repository only, and report what worked or failed. Do not create or queue a Task, run agents, or push changes until I ask.
 
-这些问题不会随着模型变强而消失。它们不是智能问题，而是**分工、交接、验收和责任边界**的问题。
+Prefer step-by-step instructions? See [Install with your agent](docs/install-with-agent_EN.md).
 
-核心规则本身并不依赖软件开发，但研发是当前第一个、也是已经过实际项目验证的应用领域。其他领域是否采用同样的证据和验收细则，需要分别验证，而不是预设。
+**Manual alternative:** Download the binary for macOS, Linux, or Windows from [Releases](https://github.com/boboty/agent-board/releases) and place `aboard` on your `PATH`, then run:
 
-## 一张工单怎么走完
-
-假设你在开发 `shop-api`，发现一个问题：满减券和折扣券叠加时多扣钱。
-
-### ① 先定义工单，不开工
-
-> 把这个问题建成工单，验收标准写清楚，先别开工。
-
-工单创建后先由人确认。只有进入 `READY`，才代表获得执行授权。
-
-### ② 执行者执行并交付
-
-> 执行 READY 队列，遵循 `agent-board-workflow`。遇到需要我决定的事就停下报告。
-
-执行者（Worker）自己管理内部计划和子步骤。完成后留下稳定的工作区、交付记录和验证证据，并明确这一轮交付对应哪一份结果。
-
-### ③ 独立验收者验证
-
-每轮由全新、只读的独立验收者（Independent Verifier）审查从工单基线起的完整差异和相关代码，逐项判断全部验收标准，独立形成结论。首次验收取得覆盖全部标准的最小充分证据。
-
-`RC` 修正后，完整独立判断不等于重复执行所有检查。验收者核对前轮 Fact / 持久证据的来源、覆盖范围、前后 baseline / fingerprint、环境、数据和变更影响后，可复用未受影响且仍可信有效的证据，包括高成本检查；必须说明其对当前交付仍适用的理由。代码或共享依赖可能波及的标准、失效或不足的证据、相关环境或数据变化、新风险，必须重跑或补充必要检查。证据不足不能 `PASS`；不得只检查 RC 清单或继承前轮结论。
-
-执行者的交付说明只是**待核实的声明**，不能替代验收者自己的检查。
-
-- `PASS`：这份交付通过独立验证
-- `RC`：退回原工单修正，形成新的交付，再由新的独立验收者复验
-- `BLOCKED`：当前无法完成验证，记录原因并停止
-
-`PASS / RC / BLOCKED` 是 verification verdict，不是额外的工单状态，也不会自动改变工单状态。
-
-验收结束时，验收者先保存必要证据，再清理本轮创建且不再需要的临时资源。中断后的清理由调度者在确认原验收者已停止后接续；共享交付工作区保留给 RC 修正或 PASS 后的收口。
-
-人（Human）也可以明确接受一份没有独立验收者 `PASS` 的交付，但这会记录为 `decision`，而不是伪装成 `PASS`。
-
-![工单详情：交付、独立验收、事实历史](docs/images/task-detail.webp)
-
-你回来看到的不是“AI 说自己做完了”，而是：
-
-**做了什么 → 交付的是哪一份结果 → 谁独立验过 → 为什么可以接受。**
-
-## 核心规则
-
-1. **可独立委托的工作，一事一单。** 只有能被独立调度、独立验收、必要时独立交接的工作才进入 Board。执行者自己的待办、计划、子步骤和子智能体拆分留在执行工具内部。
-2. **先明确边界，再授权执行。** 工单写清目标、范围和可检查的验收标准；创建工单不等于开工，进入 `READY` 才代表获得执行授权。同一工单的工作区，同一时刻最多只有一个当前执行者。
-3. **交付必须有证据，也必须能被识别。** “做完了”不是结论。执行者要记录改了什么、基于什么基线、做了哪些检查、哪些内容没有验证，以及这一轮交付对应哪一份结果。
-4. **做的人不验收。** 执行者可以自检，但不能自己宣布 `PASS`。正式验收由新的独立会话或实例完成；验收以验收标准、完整差异和验收者自己的检查为准。
-5. **验证结论和人的裁决分开。** `PASS` 只属于独立验收者。人可以接受一份未通过独立验收的交付，但只能记录为 `decision`。
-6. **返工不另起炉灶。** `RC` 后继续在原工单和原交付边界上修正；每次修正形成新交付和新 fingerprint，全新独立验收者对全部标准重新判断，按影响重跑检查或核验后复用证据。verification fact 区分本轮检查与复用证据、来源和依据；`PASS` 只绑定当前 baseline / fingerprint，验证开始、结束及清理后均须一致。
-7. **状态不靠任何一个智能体的记忆。** 中断或接管时，从工单与 Board facts、Workspace/Git 和必要的 Agent activity 中恢复事实；handoff 只补充缺失上下文，不另建第二套进度事实源。
-
-调度者（Orchestrator）负责安排工作和恢复流程，不承担工单执行，也不做独立验收；执行者负责执行和交付；独立验收者不修改交付内容，只负责验证并记录结论。
-
-人始终拥有产品意图、READY 优先级，以及 merge、push、release 等不可逆动作的最终授权权。
-
-## 参考实现：`aboard`
-
-Agent Board 把这些规则落到一份外部、持久、可追溯的本地任务账本里。
-
-**代码提供能力，Skill 定义规则，Board 保存事实。**
-
-![Agent Board](docs/images/board.webp)
-
-- **外部事实源**：任务状态不寄托在某个智能体的上下文、TODO 或进度文件里
-- **明确的交付与验收身份**：delivery 和 verification 使用结构化核心字段，可以机械判断验收对应哪一份交付
-- **独立验收事实**：执行者交付，新的独立验收者验证；独立验收者 `PASS` 与人的 `decision` 分开记录
-- **可追溯来源**：事实可以记录 role、session、harness、model；`actor` 表示实际写入者，不是授权者，也不代表经过身份认证
-- **跨工具协作**：CLI、MCP 和 Web Board 操作同一份事实，不绑定 Claude Code、Codex、OpenCode 或特定模型
-- **本地优先**：一个二进制程序 + SQLite，无账号、无托管服务、无数据库服务器
-
-通过 `aboard` 写入的 facts 采用只追加、不覆盖的语义。Agent Board 不提供防篡改存储；拥有本机文件权限的进程仍然可以直接修改 SQLite 数据库。
-
-工单生命周期刻意保持简单：
-
-- `READY`：待执行
-- `IN_PROGRESS`：执行中
-- `DONE`：已完成
-- `BLOCKED`：阻塞
-
-执行者、验收者、RC、handoff、session 都不是额外的顶层状态。
-
-## 它不是什么
-
-Agent Board 不是 IDE，不是 AI 智能体，不是 Agent Harness，也不是调度器。
-
-它不接管执行者的内部计划，不决定模型和 Harness，不自动拉起 Agent，也不会因为 `PASS` 或 `RC` 自动改变工单状态。
-
-你可以继续在原来的工具里讨论和开发，也可以结合 Paseo、Orca 或其他调度工具做并发执行。具体 Harness 运行方式见 [最佳实践](docs/best-practices.md)。
-
-## 它和 GitHub Issues / PR 是什么关系
-
-Agent Board 不试图替代 GitHub。
-
-GitHub Issues、PR、CI 和 Code Review 非常适合代码托管平台内的协作和最终收口；Agent Board 关注的是更靠近执行现场的一层：**本地、多工作树、多执行工具、多智能体之间的执行、交接和独立验收事实。**
-
-如果团队能够直接用 GitHub 或其他平台完整承载同样的规则，也没有问题。规则不应该依赖 Agent Board 才成立。
-
-`aboard` 的价值，是提供一个轻量、本地、可直接被 AI 操作的参考实现。
-
-## 和常见做法相比
-
-| | 文件 / Agent 内部 TODO | Issues / PR | **Agent Board** |
-|---|---|---|---|
-| 本地多 Agent 共享任务事实 | 需要约定，容易分叉 | 以远端协作为主 | 原生 |
-| 跨 Harness 执行与交接 | 通常局限于当前工具 | 需要额外集成 | 原生记录 |
-| 独立验收作为本地执行事实 | 需自行约定 | 可通过 PR / Review 实现 | 原生记录 |
-| AI 直接读写 | 文件或工具内部能力 | API + 鉴权 | CLI / MCP |
-| 运行依赖 | 无 | 远端服务 | 本地 binary + SQLite |
-
-## 首选：让你的 Agent 安装
-
-把下面这段说明复制到 Codex、Claude Code 或 OpenCode。它会先确认当前系统、Harness 和目标 Git 仓库，再选择可用的既有安装方式；安装和诊断结果会逐项报告。首次使用只需要 CLI，MCP 是可选项。
-
-```text
-请按 Agent Board 仓库的“Install with your agent”说明，为当前环境安装并验证 aboard：
-https://github.com/boboty/agent-board/blob/main/docs/install-with-agent.md
-
-先确认当前操作系统/架构、你当前运行的 Harness，以及我希望初始化的 Git 仓库路径。不要扫描无关项目或修改其他 Harness 配置。按说明选择适合此环境的预编译版本或 Go 安装；若缺少前提、当前环境不支持，或安装后 `aboard` 不在 PATH 中，请停止并报告已完成部分、原因和下一步，不要把部分成功说成安装完成。
-
-安装 management 与 workflow 两个 Skills，检查安装状态；如果现有 Skill 内容不同，保留并报告，不要擅自用 `--force` 覆盖。只在我确认的目标 Git 仓库中运行 `aboard init`，随后运行 `aboard doctor`。最后汇总 aboard 版本及路径、两个 Skills 的实际安装状态、目标项目初始化状态、doctor 结果和任何未解决问题，并告诉我如何开始定义一个 Task。不要替我创建或入队 Task，也不要执行任务、提交、push、merge 或 release。
-```
-
-完整安装步骤与失败处理见 [Install with your agent](docs/install-with-agent.md)。安装后按[首次跑通一个 Task](docs/first-task.md)走一次 Worker → Independent Verifier → DONE 闭环，日常操作见[日常使用](docs/usage.md)。
-
-## 手工安装（备用入口）
-
-如果暂时不使用 Agent，可按以下方式安装。
-
-### 下载预编译版本
-
-从 [GitHub Releases](https://github.com/boboty/agent-board/releases) 下载对应平台的 `aboard`，放入 `PATH`：
-
-- macOS — Apple Silicon / Intel
-- Linux — amd64 / arm64
-- Windows — amd64
-
-Release 同时提供 `SHA256SUMS`。
-
-然后：
-
-```bash
+```sh
 aboard version
 aboard skill install
-
-cd your-project
+cd /path/to/your/git-repository
 aboard init
 aboard doctor
 aboard web
 ```
 
-### 或使用 Go 安装
+Or install using Go 1.25+:
 
-本机已有 **Go 1.25+** 时：
-
-```bash
+```sh
 go install github.com/boboty/agent-board/cmd/aboard@latest
-aboard skill install
-
-cd your-project
-aboard init
-aboard doctor
-aboard web
 ```
 
-`aboard init` 必须在 Git 仓库内运行。项目身份保存在本机 Git common dir（普通 clone 中为 `.git/agent-board.json`），不进入工作树、不提交；Board 数据保存在 `~/.agent-board/<project_id>/board.db`。
+The Go installation provides the binary; run `aboard skill install` and the initialization commands above afterward. See [Operations](docs/operations_EN.md) for upgrades and troubleshooting.
 
-同一本地仓库的所有 worktree 自动共享同一个 Board；其他机器上的独立 clone 需要各自运行一次 `aboard init`。
+### 2. Create your first Task
 
-从 v0.1.x 升级时，项目身份位置已经调整，请先阅读 [升级与运维说明](docs/operations.md)。
+Tell your agent:
 
-之后回到你的 AI 工具，用自然语言说“把 XX 建成工单”即可。
+> Create an unqueued Board Task for this bug or feature, with a clear scope and independently checkable acceptance criteria. Do not start implementation yet.
 
-### 执行端怎么选
+Review the Task; queue it as **READY** only after accepting its definition. Then ask:
 
-- **单一 Claude Code / Codex / OpenCode**：也能使用；执行者和独立验收者使用彼此独立的会话或实例
-- **并行或后台执行**：可以结合 Paseo、Orca 或其他调度者读取 READY，并安排执行者和新的独立验收者
+> Execute the READY Task following `agent-board-workflow`. Use a Worker for implementation and a fresh, separate Independent Verifier for acceptance checks. Stop and ask when a Human decision is needed.
 
-是否自动 merge、push 或 release，由人在每次运行中明确授权。
+Start `aboard web` to inspect the Task, its deliveries, verification facts, and decision history.
 
-## 你始终保留控制权
+[Walk through your first Task →](docs/first-task_EN.md)
 
-- 创建工单不等于开工：只有进入 `READY` 才获得执行授权
-- 执行者无权用“自检通过”替代独立验收
-- 独立验收者不修改交付内容
-- verification verdict 不自动改变工单状态
-- 人的接受不冒充独立验收者 `PASS`
-- 语义不清、冲突或异常时停止并记录，必要时进入 `BLOCKED`
-- merge、push、release 等不可逆动作是否自动完成，由人在本次运行中明确授权
+![Agent Board — shared task ledger](docs/images/board.webp)
 
-Agent Board 不是把人从研发里拿掉，而是把人的注意力从盯执行过程移回**做什么、先做什么，以及出现分歧时如何裁决**。
+## How a Task reaches DONE
 
-## 更多
+1. **Define and authorize.** A Task has a goal, scope, constraints, and acceptance criteria. Creating it is not permission to execute; queueing it as `READY` is.
+2. **Execute and deliver.** A Worker produces a stable workspace and a `delivery` fact identifying the baseline, fingerprint, evidence, and limitations.
+3. **Verify independently.** A fresh, read-only Independent Verifier examines the delivery and records `PASS`, `RC` (return for correction), or `BLOCKED`. The Worker's self-check is not independent verification.
+4. **Accept and close.** The Orchestrator closes the Task only after the verified content is packaged as the accepted commit, or a Human explicitly accepts it through a separate `decision` fact. A verdict never changes Task state automatically.
 
-- [工作流规则：完整规范](workflow/SKILL.md)
-- [首次跑通一个 Task](docs/first-task.md)
-- [RC 差异复验：可复核场景](docs/rc-evidence-examples.md)
-- [日常使用：CLI / MCP / Skills](docs/usage.md)
-- [最佳实践：Harness 与调度运行方式](docs/best-practices.md)
-- [升级、清理、卸载](docs/operations.md)
-- [PRODUCT.md](PRODUCT.md) — 产品定义与边界
-- [ARCHITECTURE.md](ARCHITECTURE.md) — 架构与持久化
-- [从源码开发](docs/development.md)
+After `RC`, a new delivery is independently evaluated. Valid prior evidence may be reused **only after checking its applicability to the changed delivery**; impacted or uncertain checks must be rerun. See [the workflow specification](workflow/SKILL.md) and [RC evidence examples (Chinese)](docs/rc-evidence-examples.md).
 
-Apache-2.0。部分底层基础设施代码源自 [rhizome-mcp](https://github.com/Odrin/rhizome-mcp)，依据 Apache-2.0 使用与修改，详见 [NOTICE](NOTICE)。
+![Task detail — delivery, verification, and facts](docs/images/task-detail.webp)
+
+## Why not an internal TODO or a chat summary?
+
+An agent can manage its own steps. A shared Task must also survive a different agent, session, harness, or worktree:
+
+- **A contract instead of a vague request:** what counts as acceptable is written before execution.
+- **An identifiable result:** the verifier checks the delivery tied to a specific baseline and fingerprint.
+- **Separate responsibilities:** the Worker does not issue its own `PASS`; a Human decision is not disguised as verification.
+- **An auditable handoff:** execution, delivery, verification, decisions, and handoff facts remain available after a session ends.
+
+Only work worth **independent scheduling, verification, or handoff** belongs on the Board. Internal plans and substeps stay in the execution tool.
+
+## What `aboard` does — and does not do
+
+| It provides today | It deliberately leaves to other tools or rules |
+| --- | --- |
+| Local Tasks, `READY / IN_PROGRESS / DONE / BLOCKED`, ordered queue | Starting agents, scheduling workers, or selecting models |
+| Structured delivery and verification facts, audit events | Deciding that an agent's claim is true without verification |
+| CLI, MCP, and Web views of the same ledger | Coding-agent conversations, plans, and general project memory |
+| One local Board shared across Git worktrees of a clone | Cross-machine shared ledgers or a distributed node network |
+
+The **Workflow Skill** defines role responsibilities and acceptance rules; **the Board** records facts reliably. The Board does not authenticate agent roles or technically enforce every workflow rule. Facts recorded through `aboard` are append-only, but the local SQLite database is **not tamper-proof**.
+
+Project identity is local to each Git clone. All worktrees of that clone share its Board, while independent clones initialize their own. For engineering quality requirements, use the relevant engineering standard independently of the task ledger.
+
+## Longer-term direction
+
+The present product is a practical system for AI-assisted software delivery. A broader direction is a **portable collaboration protocol** in which a Goal owns a ledger, Tasks carry contracts, Deliveries carry evidence, and Governance determines acceptance — without binding work to one model, harness, or centralized coordinator. This is a design direction, **not a claim that v0.2.3 already implements Goals or cross-node coordination**.
+
+[Read the project whitepaper →](docs/WHITEPAPER.md)
+
+## Documentation
+
+- [Installation with an agent](docs/install-with-agent_EN.md) · [First Task](docs/first-task_EN.md) · [Daily usage](docs/usage_EN.md)
+- [Workflow Skill](workflow/SKILL.md) · [Best practices](docs/best-practices.md) · [Operations](docs/operations_EN.md)
+- [Product definition](PRODUCT.md) · [Architecture](ARCHITECTURE.md) · [Development](docs/development.md)
+- [Whitepaper](docs/WHITEPAPER.md) · [白皮书（中文）](docs/WHITEPAPER.zh-CN.md)
+
+**License:** Apache-2.0. See [LICENSE](LICENSE) and [NOTICE](NOTICE) for third-party attributions.
